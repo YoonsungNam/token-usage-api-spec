@@ -1,0 +1,16 @@
+# Redocly lint 설정 — OpenAPI 3.1 구조/정합성 검증
+# (Spectral 6 는 type:'null' / if-then 등 3.1 구문에서 크래시하여 Redocly 로 교체)
+extends:
+  - recommended
+rules:
+  # 사내 단일 contract — 불필요한 메타/스타일 규칙은 끈다
+  info-license: off
+  info-license-url: off
+  tag-description: off
+  operation-description: off
+  operation-summary: off
+  # 서버 기본 호스트에 example.com 이 들어가 있으나 의도된 예시 호스트다
+  no-server-example.com: off
+  # 사내 신뢰망 전제로 인증 미요구(security: []) — 의도적
+  security-defined: off
+  # 구조/정합성/예시 적합성 규칙은 recommended 기본대로 유지

@@ -5,19 +5,19 @@ on:
     branches: [main]
     paths:
       - 'token-usage-api.v2.yaml'
-      - '.spectral.yaml'
+      - 'redocly.yaml'
       - 'scripts/validate_examples.py'
       - '.github/workflows/openapi-ci.yml'
   pull_request:
     paths:
       - 'token-usage-api.v2.yaml'
-      - '.spectral.yaml'
+      - 'redocly.yaml'
       - 'scripts/validate_examples.py'
       - '.github/workflows/openapi-ci.yml'
 
 jobs:
-  spectral-lint:
-    name: Spectral lint (구조/스타일)
+  redocly-lint:
+    name: Redocly lint (구조/정합성)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,11 +25,7 @@ jobs:
         with:
           node-version: '20'
       - name: Lint OpenAPI (current spec)
-        run: >-
-          npx --yes @stoplight/spectral-cli@6 lint
-          token-usage-api.v2.yaml
-          --ruleset .spectral.yaml
-          --fail-severity error
+        run: npx --yes @redocly/cli@latest lint token-usage-api.v2.yaml
 
   validate-examples:
     name: Examples + if/then regression
