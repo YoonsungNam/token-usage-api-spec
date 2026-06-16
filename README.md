@@ -8,6 +8,7 @@
 ## 파일
 
 - [`token-usage-api.v2.yaml`](./token-usage-api.v2.yaml) — OpenAPI 3.1 스펙 (현행, v2.0.0)
+- [`CHANGELOG.md`](./CHANGELOG.md) — v1 → v2 변경사항 + 결정 이유 (쉬운 설명)
 
 ## 핵심 설계
 
