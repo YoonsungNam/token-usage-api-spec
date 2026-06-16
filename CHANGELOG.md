@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## v2.2.2 — generatedAt 시간대 KST 정정 + distinctIdentifiedUsers 설명 간소화
+
+- **`generatedAt` 를 KST(`+09:00`)로 정정.** v1 의 전체 규약이 KST(`date` 도 KST)인데
+  v2 신규 필드 `generatedAt` 만 UTC(`Z`)로 두어 일관성이 깨졌던 것을 바로잡음.
+  pattern 도 `+09:00` 강제(예시·검증 케이스 포함).
+- **`distinctIdentifiedUsers` 설명 간소화.** 이 스펙은 provider 입장의 API 이므로 한 사용자가
+  A·B 서비스를 쓰면 A·B 각각 1명으로 집계되는 것이 정상. "서비스별 사용자 / 사용자별 서비스"
+  교차 집계는 수집기가 `GET /v1/usage` 의 `userId` 로 계산한다 — 과한 non-additive 경고 제거.
+
 ## v2.2.1 — description 형식 개정 (v1 보존 + v2 델타 표기, 계약 불변)
 
 리뷰어(v1 작성자)가 자기 글을 알아보고 무엇이 바뀌었는지 바로 보도록, description 을

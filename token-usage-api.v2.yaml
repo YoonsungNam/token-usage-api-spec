@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: Service Usage Provider API
-  version: 2.2.1
+  version: 2.2.2
   description: |
     사내 각 서비스가 **자신의 LLM 사용량**(input/output token, request 수)을 노출하기 위해
     구현해야 하는 **표준 조회 API 계약(contract)**.
@@ -62,7 +62,7 @@ info:
     - 아직 집계 전이면 `409`(빈 `200` 으로 응답하지 말 것 — "사용량 0" 과 구분되어야 한다).
     - 사용량이 실제로 0 이면 `200` + 빈 목록.
     - 당일/미래 `date` 는 `400`, 보존 기간 초과는 `404`.
-    - 응답에는 집계 산출 시각 `generatedAt`(UTC, `Z`)을 포함한다.
+    - 응답에는 집계 산출 시각 `generatedAt`(**KST, `+09:00`** — date 와 동일하게 KST)을 포함한다.
 
     ## 토큰 필드  **[v2 추가]** (값은 provider 가 보고한 usage 기준)
     - `inputTokens`: input 토큰 (v1 과 동일하되, **cache read 는 제외**)
@@ -396,9 +396,9 @@ components:
         generatedAt:
           type: string
           format: date-time
-          description: 집계 산출 시각 (UTC, `Z` suffix)
-          pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$'
-          examples: ['2026-06-16T17:05:00Z']
+          description: 집계 산출 시각 (KST, `+09:00` — date 와 동일하게 KST)
+          pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?\+09:00$'
+          examples: ['2026-06-16T02:05:00+09:00']
         records:
           type: array
           description: 이 페이지의 사용량 행
@@ -413,7 +413,7 @@ components:
           serviceId: xx-dev-knowledge-agent
           service: XX 개발 지식 Agent
           date: '2026-06-15'
-          generatedAt: '2026-06-16T17:05:00Z'
+          generatedAt: '2026-06-16T02:05:00+09:00'
           records:
             - userId: user-1024
               userType: identified
@@ -464,9 +464,9 @@ components:
         generatedAt:
           type: string
           format: date-time
-          description: 집계 산출 시각 (UTC, `Z` suffix)
-          pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$'
-          examples: ['2026-06-16T17:05:00Z']
+          description: 집계 산출 시각 (KST, `+09:00` — date 와 동일하게 KST)
+          pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?\+09:00$'
+          examples: ['2026-06-16T02:05:00+09:00']
         inputTokens:
           type: integer
           format: int64
@@ -493,14 +493,16 @@ components:
           type: integer
           minimum: 0
           description: |
-            실명(`identified`) 고유 사용자 수. 서비스/그룹 간 합산 불가(non-additive).
+            이 서비스 기준 실명(`identified`) 고유 사용자 수(편의값). 서비스별로 각각 1명
+            집계되는 것이 정상이며, 사용자별·서비스 교차 집계는 수집기가 `GET /v1/usage`
+            의 `userId` 로 계산한다.
       examples:
         - serviceGroupId: xx-agentic-ai
           serviceGroup: XX Agentic AI
           serviceId: xx-dev-knowledge-agent
           service: XX 개발 지식 Agent
           date: '2026-06-15'
-          generatedAt: '2026-06-16T17:05:00Z'
+          generatedAt: '2026-06-16T02:05:00+09:00'
           inputTokens: 179000
           cacheReadTokens: 89000
           cacheCreationTokens: 12000

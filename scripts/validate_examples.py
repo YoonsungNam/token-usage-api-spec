@@ -92,6 +92,17 @@ def main():
     for label, inst in positives:
         expect(f"pos: {label}", rec, inst, True)
 
+    print("\n== generatedAt KST(+09:00) regression ==")
+    page = Validator(build(schemas, "UsagePage"))
+    base_page = {
+        "serviceGroupId": "g", "serviceGroup": "G",
+        "serviceId": "s", "service": "S",
+        "date": "2026-06-15", "records": [],
+    }
+    expect("gen KST +09:00", page, {**base_page, "generatedAt": "2026-06-16T02:05:00+09:00"}, True)
+    expect("gen UTC Z (reject)", page, {**base_page, "generatedAt": "2026-06-16T17:05:00Z"}, False)
+    expect("gen +00:00 (reject)", page, {**base_page, "generatedAt": "2026-06-16T17:05:00+00:00"}, False)
+
     if failures:
         print(f"\n{len(failures)} FAILURE(S):")
         for label, msgs in failures:
