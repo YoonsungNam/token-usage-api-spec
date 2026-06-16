@@ -1,0 +1,11 @@
+# Spectral 룰셋 — OpenAPI 구조/스타일 린트 (사내 contract 기준으로 잡음 완화)
+extends: ["spectral:oas"]
+rules:
+  # 사내 단일 contract 라 불필요한 메타데이터 규칙은 끈다
+  info-contact: off
+  info-license: off
+  contact-properties: off
+  license-url: off
+  oas3-unused-component: off
+  operation-tag-defined: off
+  # 구조/정합성/예시 적합성 규칙은 기본(spectral:oas)대로 유지한다.

@@ -25,6 +25,28 @@
 
 자세한 변경 이력은 스펙 파일 끝의 `CHANGELOG (v1 → v2)` 참고.
 
+## 검증 / CI
+
+PR·push 시 `.github/workflows/openapi-ci.yml` 가 두 단계로 스펙을 검증한다.
+
+1. **Spectral lint** — OpenAPI 3.1 구조/`$ref`/스타일 (`.spectral.yaml` 룰셋)
+2. **예시 + if/then 회귀 검증** — `scripts/validate_examples.py`
+   (모든 `examples` 적합성 + `userType`↔`userId` 조건부 제약의 양성/음성 케이스)
+
+로컬 실행:
+
+```bash
+# (1) 구조 lint
+npx --yes @stoplight/spectral-cli@6 lint token-usage-api.v2.yaml --ruleset .spectral.yaml --fail-severity error
+# (2) 예시 / if-then 검증
+pip install "jsonschema>=4.21" pyyaml && python scripts/validate_examples.py
+```
+
+> 참고: `if/then` 조건부 제약은 **런타임 JSON Schema 검증기**(ajv/jsonschema 등)에서만
+> 강제된다. 다수 OpenAPI **코드 생성기**는 이를 무시하므로, 생성 타입이 아니라
+> 런타임 검증으로 제약을 보장해야 한다. 코드 생성 도입 시 해당 도구의 OpenAPI 3.1 지원
+> 여부부터 확인할 것.
+
 ## 엔드포인트
 
 | Method | Path | 설명 |

@@ -1,0 +1,45 @@
+name: OpenAPI CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'token-usage-api.v2.yaml'
+      - '.spectral.yaml'
+      - 'scripts/validate_examples.py'
+      - '.github/workflows/openapi-ci.yml'
+  pull_request:
+    paths:
+      - 'token-usage-api.v2.yaml'
+      - '.spectral.yaml'
+      - 'scripts/validate_examples.py'
+      - '.github/workflows/openapi-ci.yml'
+
+jobs:
+  spectral-lint:
+    name: Spectral lint (구조/스타일)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Lint OpenAPI (current spec)
+        run: >-
+          npx --yes @stoplight/spectral-cli@6 lint
+          token-usage-api.v2.yaml
+          --ruleset .spectral.yaml
+          --fail-severity error
+
+  validate-examples:
+    name: Examples + if/then regression
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install deps
+        run: pip install "jsonschema>=4.21" "pyyaml>=6"
+      - name: Validate examples and conditional constraints
+        run: python scripts/validate_examples.py
