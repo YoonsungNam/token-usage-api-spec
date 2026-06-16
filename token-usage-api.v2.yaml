@@ -2,12 +2,12 @@ openapi: 3.1.0
 
 info:
   title: Service Usage Provider API
-  version: 2.0.0
+  version: 2.1.0
   description: |
     사내 각 서비스가 **자신의 LLM 사용량**(input/output/cache token, request 수)을 노출하기 위해
     구현해야 하는 **표준 조회 API 계약(contract)**.
 
-    > v2.0.0 변경 요약은 문서 맨 끝 `## CHANGELOG (v1 → v2)` 참고.
+    > v2 변경 이력은 문서 맨 끝 `## CHANGELOG` 및 레포의 `CHANGELOG.md` 참고.
 
     ## 호출 방향
     - 각 서비스가 이 스펙대로 `GET` 엔드포인트를 구현(노출)한다.
@@ -33,13 +33,14 @@ info:
       확정되어 제공 가능해야 한다.
     - OTel 등 UTC 기준 원천 데이터를 쓰는 경우, KST 자정 경계로 재집계(bucketing)해야 한다.
 
-    ## 데이터 확정(finalization) 상태 — 중요
-    - 응답은 `status` 로 데이터 확정 여부를 구분한다: `final`(확정) / `partial`(아직 집계 중).
-    - 수집기는 **`final` 인 페이지만 영구 적재**하고, `partial` 이면 나중에 재호출한다.
+    ## 데이터 확정(finalization) — 중요
+    - **이 API 는 확정(final) 데이터만 `200` 으로 반환한다.** 부분/집계 중 데이터는 노출하지 않는다.
     - **"사용량 0" 과 "아직 미확정" 은 반드시 구분한다:**
-      - 유효한 일자인데 사용량이 진짜 0  → `200` + 빈 `records` + `status: final`
-      - 유효한 일자이나 아직 집계 전        → `409 data_not_ready` (수집기가 재시도)
+      - 유효한 일자인데 사용량이 진짜 0  → `200` + 빈 `records`
+      - 유효한 일자이나 아직 집계 전        → `409 data_not_ready` (수집기가 `Retry-After` 후 재시도)
       이 구분이 없으면 "미확정"을 "사용량 0"으로 오인해 데이터가 조용히 유실된다.
+    - 따라서 수집기는 **`200` 으로 받은 페이지만 영구 적재**하면 되고, 부분 적재/무효화 로직이
+      필요 없다. (산출 시각은 `generatedAt` 으로 확인)
 
     ## 서비스 / 서비스 그룹 (집계 키 안정화)
     - 각 응답은 자신의 서비스 식별자와, 그 상위 개념인 **서비스 그룹(과제명)** 을 함께 포함한다.
@@ -53,18 +54,19 @@ info:
     ## 데이터 모델
     - 사용량은 특정 일자(`date`)에 대해 **사용자×모델 단위로 사전 집계**되어 제공된다.
     - 논리 키는 `(userId, userType, model)` 이며, 한 응답 내에서 중복되지 않는다.
-    - `userId` 는 nullable 이며, 분류는 `userType` enum(`identified`/`anonymous`/`unclassified`)
-      으로 구분한다. 미분류/비실명 사용량도 누락 없이 포함된다.
-    - `model` 규칙(이중 집계 방지): 한 서비스의 응답 내에서 `model` 은
-      **모든 행에 존재하거나 모든 행에 부재**해야 한다(혼재 금지). 모델을 알 수 없으면
-      `model` 을 생략하지 말고 명시적 sentinel `"unknown"` 을 사용한다.
+    - `userId` 는 `userType` 에 따라 제약된다(스키마로 강제):
+      - `identified` → `userId` **필수, 문자열**.
+      - `anonymous` / `unclassified` → `userId` 는 **null**.
+      미분류/비실명 사용량도 누락 없이 포함된다.
+    - `model` 은 **항상 존재**한다(required). 이중 집계를 막기 위해 "일부 행만 model 있음" 을 금지한다.
+      모델을 알 수 없는 경우 생략하지 말고 명시적 sentinel `"unknown"` 을 사용한다.
 
     ## 토큰 정의 (단가가 다르므로 분리 집계)
     - `inputTokens` : **cache read 를 포함하지 않는** 순수 input 토큰.
     - `cacheReadTokens` : 캐시에서 읽힌 토큰(프론티어 서비스 단가 ≈ base input 의 0.1×). optional, default 0.
     - `cacheCreationTokens` : 캐시에 쓰인 토큰(Anthropic 기준 ≈ 1.25×~2×). optional, default 0.
     - `outputTokens` : output 토큰. **reasoning/thinking 토큰을 포함**한다.
-    - 캐시 개념이 없는 백엔드(예: vLLM 자체 호스팅)는 cache 필드를 0 으로 두고
+    - 캐시 개념이 없는 백엔드(예: vLLM 자체 호스팅)는 cache 필드를 0(또는 생략) 으로 두고
       모든 input 을 `inputTokens` 에 담는다.
     - 총 input 처리량 = `inputTokens + cacheReadTokens + cacheCreationTokens`.
 
@@ -100,7 +102,7 @@ paths:
       operationId: getUsage
       summary: 일자별 사용량 조회 (사용자×모델 단위)
       description: |
-        지정한 일자(`date`)의 사용량을 사용자×모델 단위로 집계해 페이지 단위로 반환한다.
+        지정한 일자(`date`)의 **확정된** 사용량을 사용자×모델 단위로 집계해 페이지 단위로 반환한다.
         수집기는 `nextCursor` 가 없을 때까지 반복 호출하여 전체를 수합한다.
 
         ### 페이지네이션
@@ -143,8 +145,8 @@ paths:
       responses:
         '200':
           description: |
-            해당 일자의 사용량 페이지. 유효한 일자이나 사용량이 0 이면
-            `records: []` + `status: final` 로 반환한다(404 로 대체하지 않는다).
+            해당 일자의 **확정된** 사용량 페이지. 유효한 일자이나 사용량이 0 이면
+            `records: []` 로 반환한다(404 로 대체하지 않는다). 아직 확정 전이면 `409` 이다.
           content:
             application/json:
               schema:
@@ -167,7 +169,7 @@ paths:
       operationId: getUsageSummary
       summary: 일자별 사용량 합계 (서비스 단위)
       description: |
-        지정한 일자의 서비스 전체 합계를 단건으로 반환한다. 페이지네이션 없이 빠르게
+        지정한 일자의 **확정된** 서비스 전체 합계를 단건으로 반환한다. 페이지네이션 없이 빠르게
         총량만 확인할 때 사용한다 (대시보드 요약 카드 등). 상세 분해는 `GET /v1/usage` 를 쓴다.
 
         요약 토큰 합은 `GET /v1/usage` 전체 행의 합과 **정확히 일치**해야 한다(정합성 보장).
@@ -177,14 +179,17 @@ paths:
         - name: date
           in: query
           required: true
-          description: 사용량 발생 일자 (KST 기준, YYYY-MM-DD). 보통 어제 날짜.
+          description: |
+            사용량 발생 일자 (KST 기준, YYYY-MM-DD). 보통 어제 날짜.
+            당일/미래 일자는 `400` 으로 거절한다(아직 확정 불가). 보존 기간을 초과한
+            과거 일자는 `404` 일 수 있다.
           schema:
             type: string
             format: date
             examples: ['2026-06-15']
       responses:
         '200':
-          description: 해당 일자의 서비스 합계
+          description: 해당 일자의 확정된 서비스 합계
           content:
             application/json:
               schema:
@@ -263,12 +268,22 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+          examples:
+            rateLimited:
+              value:
+                code: rate_limited
+                message: 'too many requests; retry after the indicated delay'
     InternalError:
       description: 서버 내부 오류. 수집기는 백오프 후 재시도할 수 있다.
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+          examples:
+            internalError:
+              value:
+                code: internal_error
+                message: 'unexpected server error'
     ServiceUnavailable:
       description: 일시적으로 서비스 불가. 수집기는 백오프 후 재시도할 수 있다.
       headers:
@@ -280,43 +295,43 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+          examples:
+            serviceUnavailable:
+              value:
+                code: service_unavailable
+                message: 'service temporarily unavailable; retry with backoff'
 
   schemas:
     UserType:
       type: string
       description: |
         사용자 분류.
-        - `identified`: 식별된 실명 사용자 (`userId` 존재). 예) OAuth account uuid/email.
+        - `identified`: 식별된 실명 사용자 (`userId` 필수, 문자열). 예) OAuth account uuid/email.
         - `anonymous`: 비실명 사용량. `userId` 는 null 이며, 같은 모델의 모든 anonymous
           사용량은 **단일 행으로 합산**된다(계정별로 분리하지 않는다).
         - `unclassified`: 분류 정보가 없는 사용량. `userId` 는 null. 같은 모델 단위로 합산된다.
       enum: [identified, anonymous, unclassified]
 
-    DataStatus:
-      type: string
-      description: |
-        데이터 확정 상태.
-        - `final`: 해당 일자 집계가 확정됨. 수집기는 이 값만 영구 적재한다.
-        - `partial`: 아직 집계 중. 수집기는 나중에 재호출한다.
-      enum: [final, partial]
-
     UsageRecord:
       type: object
       description: |
         사용자×모델 단위로 하루치 집계된 사용량 한 행. 논리 키는 `(userId, userType, model)`.
-      required: [userType, inputTokens, outputTokens, requests]
+        `userId` 는 `userType` 에 따라 조건부로 제약된다(아래 allOf 참조).
+      required: [userType, model, inputTokens, outputTokens, requests]
       properties:
         userId:
           type: [string, 'null']
-          description: 사용자 식별자. 비실명/미분류는 null.
+          description: |
+            사용자 식별자. `identified` 면 문자열 필수, `anonymous`/`unclassified` 면 null.
           maxLength: 256
         userType:
           $ref: '#/components/schemas/UserType'
         model:
           type: string
           description: |
-            LLM 모델 식별자. 한 응답 내에서 all-or-nothing(전 행 존재 또는 전 행 부재).
-            모델을 알 수 없으면 생략 대신 `"unknown"` 사용 권장.
+            LLM 모델 식별자. **항상 존재해야 한다(required)**. 모델을 알 수 없으면
+            생략하지 말고 `"unknown"` 을 사용한다. (일부 행만 model 을 갖는 혼재는 금지)
+          minLength: 1
           maxLength: 128
           examples: ['claude-opus-4-8']
         inputTokens:
@@ -329,13 +344,13 @@ components:
           format: int64
           minimum: 0
           default: 0
-          description: 캐시에서 읽힌 토큰. 캐시 미지원 백엔드는 0.
+          description: 캐시에서 읽힌 토큰. 캐시 미지원 백엔드는 0(또는 생략).
         cacheCreationTokens:
           type: integer
           format: int64
           minimum: 0
           default: 0
-          description: 캐시에 쓰인 토큰. 캐시 미지원 백엔드는 0.
+          description: 캐시에 쓰인 토큰. 캐시 미지원 백엔드는 0(또는 생략).
         outputTokens:
           type: integer
           format: int64
@@ -346,6 +361,38 @@ components:
           format: int64
           minimum: 0
           description: LLM provider 로의 API 호출 수.
+      allOf:
+        # identified → userId 필수, 문자열(null 불가)
+        - if:
+            properties:
+              userType:
+                const: identified
+            required: [userType]
+          then:
+            required: [userId]
+            properties:
+              userId:
+                type: string
+        # anonymous → userId 는 null
+        - if:
+            properties:
+              userType:
+                const: anonymous
+            required: [userType]
+          then:
+            properties:
+              userId:
+                type: 'null'
+        # unclassified → userId 는 null
+        - if:
+            properties:
+              userType:
+                const: unclassified
+            required: [userType]
+          then:
+            properties:
+              userId:
+                type: 'null'
       examples:
         - userId: user-1024
           userType: identified
@@ -378,7 +425,6 @@ components:
         - serviceId
         - service
         - date
-        - status
         - generatedAt
         - records
       properties:
@@ -407,12 +453,13 @@ components:
           format: date
           description: 사용량 발생 일자 (KST 기준)
           examples: ['2026-06-15']
-        status:
-          $ref: '#/components/schemas/DataStatus'
         generatedAt:
           type: string
           format: date-time
-          description: 이 집계 스냅샷이 산출된 시각(UTC, RFC3339). 신선도 판단용.
+          description: |
+            이 집계 스냅샷이 산출된 시각. **UTC 로 `Z` suffix 를 사용한 RFC3339** 만 허용한다
+            (offset 표기 금지). 신선도 판단용.
+          pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$'
           examples: ['2026-06-16T17:05:00Z']
         records:
           type: array
@@ -428,7 +475,6 @@ components:
           serviceId: xx-dev-knowledge-agent
           service: XX 개발 지식 Agent
           date: '2026-06-15'
-          status: final
           generatedAt: '2026-06-16T17:05:00Z'
           records:
             - userId: user-1024
@@ -461,11 +507,8 @@ components:
         - serviceId
         - service
         - date
-        - status
         - generatedAt
         - inputTokens
-        - cacheReadTokens
-        - cacheCreationTokens
         - outputTokens
         - requests
         - distinctIdentifiedUsers
@@ -490,11 +533,12 @@ components:
           type: string
           format: date
           examples: ['2026-06-15']
-        status:
-          $ref: '#/components/schemas/DataStatus'
         generatedAt:
           type: string
           format: date-time
+          description: |
+            이 집계 스냅샷이 산출된 시각. UTC `Z` suffix RFC3339 만 허용.
+          pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$'
           examples: ['2026-06-16T17:05:00Z']
         inputTokens:
           type: integer
@@ -505,11 +549,13 @@ components:
           format: int64
           minimum: 0
           default: 0
+          description: optional, default 0 (UsageRecord 와 동일 정책).
         cacheCreationTokens:
           type: integer
           format: int64
           minimum: 0
           default: 0
+          description: optional, default 0 (UsageRecord 와 동일 정책).
         outputTokens:
           type: integer
           format: int64
@@ -533,7 +579,6 @@ components:
           serviceId: xx-dev-knowledge-agent
           service: XX 개발 지식 Agent
           date: '2026-06-15'
-          status: final
           generatedAt: '2026-06-16T17:05:00Z'
           inputTokens: 179000
           cacheReadTokens: 89000
@@ -550,7 +595,8 @@ components:
           type: string
           description: |
             기계 판독용 에러 코드. 예) `invalid_cursor`, `invalid_date`,
-            `data_not_ready`, `data_not_retained`, `rate_limited`, `internal_error`.
+            `data_not_ready`, `data_not_retained`, `rate_limited`, `internal_error`,
+            `service_unavailable`.
           examples: [invalid_cursor]
         message:
           type: string
@@ -570,24 +616,23 @@ components:
           message: 'cursor is malformed or expired'
 
 # ----------------------------------------------------------------------------
-# CHANGELOG (v1 → v2)
+# CHANGELOG
 # ----------------------------------------------------------------------------
-# [Critical]
-#  - 토큰 모델 확장: cacheReadTokens / cacheCreationTokens 추가(optional, default 0),
-#    inputTokens 는 cache read 제외로 정의, outputTokens 는 reasoning 포함으로 명시.
-#  - "미확정 vs 사용량 0" 분리: status(final|partial) + generatedAt 추가,
-#    미확정은 409 data_not_ready(+Retry-After), 사용량 0 은 200 빈 페이지로 통일.
-#    (v1 의 "404 또는 빈 200 택1" 모호성 제거)
-#  - model all-or-nothing 규칙 명문화, 모델 미상은 "unknown" sentinel 권장.
-#  - 집계 키 안정화: serviceGroupId/serviceId(불변·정규화) 추가, serviceGroup/service 는 표시명.
-#  - distinctUsers → distinctIdentifiedUsers 로 명확화 + non-additive 명시.
-# [Important]
-#  - cursor: stateless keyset 권장(무존료/무만료), 페이지네이션 중 데이터셋 불변 명시,
-#    만료 시 400 invalid_cursor 후 재시작 규칙.
-#  - date 검증: 당일/미래 400(invalid_date), 보존 초과 404(data_not_retained).
-#  - summary = detail 합 일치(정합성) 명문화.
-#  - 토큰/requests 출처 정의: provider 보고 usage 기준, requests=provider API 호출 수.
-# [Nits]
-#  - 401/404/409/429/500/503 응답 정의 추가(+Retry-After).
-#  - 인증 미요구는 유지하되 네트워크 ACL 등 비-API 통제 권장 문구 추가.
-#  - 예시의 trailing space / 서비스명 불일치 버그 수정.
+# v2.1.0 (Codex 리뷰 반영)
+#  - [높음] 미확정 표현 단일화: status/DataStatus(partial) 제거. 200=확정 데이터만,
+#    미확정은 409 data_not_ready 로만 표현(중복 메커니즘 제거).
+#  - [높음] model 을 required 로 승격(+minLength 1). "생략 가능" 문구 제거, 미상은 "unknown".
+#  - [중간] userType↔userId 조건부 제약을 allOf if/then 으로 강제
+#    (identified→userId 문자열 필수, anonymous/unclassified→userId null).
+#  - [낮음] 인라인 CHANGELOG 의 잘못된 401 표기 제거(인증 미요구 유지).
+#  - [정리] cache 필드 정책 일치: UsageSummary 의 cacheRead/cacheCreation 을 optional(default 0)
+#    로 변경하여 UsageRecord 와 동일하게.
+#  - [정리] /v1/usage/summary 의 date 파라미터에 당일/미래 400, 보존초과 404 문구 동일 적용.
+#  - [정리] generatedAt 을 UTC Z suffix RFC3339 로 pattern 강제.
+#
+# v2.0.0 (v1 → v2 주요 개편)
+#  - 캐시 토큰(cacheRead/cacheCreation) 추가, inputTokens=cache read 제외 정의.
+#  - "미확정 vs 사용량 0" 분리(초기엔 status+409, v2.1 에서 409 단일화).
+#  - 집계 키 안정화(serviceGroupId/serviceId), distinctIdentifiedUsers(non-additive).
+#  - cursor keyset 권장, date 검증, summary=detail 합 정합성, 에러 응답/Retry-After 추가.
+#  - 자세한 v1→v2 설명은 레포의 CHANGELOG.md 참고.

@@ -1,5 +1,26 @@
 # CHANGELOG
 
+## v2.1.0 — Codex 리뷰 반영 (스키마 강제력 보강)
+
+v2.0.0 은 "설명은 강하지만 스키마는 느슨한" 부분이 있었다. v2.1.0 은 그 계약들을
+**OpenAPI 스키마로 실제 강제**하도록 조였다. 동작 자체의 큰 변화는 없고, 구현체/수집기
+간 해석 차이를 없애는 정리다.
+
+| 항목 | v2.0.0 | v2.1.0 | 왜 |
+|---|---|---|---|
+| 미확정 표현 | `200 + status:partial` 과 `409` 두 갈래 | **`409` 단일화** (`status`/`DataStatus` 삭제, `200`=확정만) | 미확정 신호가 둘이면 수집기가 적재/재시도 판단에서 갈림 |
+| `model` | 선택 필드("생략 가능") + "unknown 권장" 혼재 | **required** (+`minLength:1`), 미상은 `"unknown"` | 일부 행만 model 있으면 이중 집계. 메시지도 한쪽으로 정리 |
+| `userId` ↔ `userType` | 설명만 ("identified면 존재") | **`allOf` if/then 으로 강제** (identified→문자열 필수, anonymous/unclassified→null) | 논리 키·distinct 계산이 구현마다 달라지는 것 방지 |
+| cache 필드 | record optional / summary required (불일치) | **양쪽 optional+default 0 일치** | 혼합 환경 정책 일관성 (vLLM 등은 0/생략) |
+| `generatedAt` | `date-time` (offset 허용) | **UTC `Z` suffix 강제(pattern)** | 시각 해석 혼선 제거 |
+| summary `date` | 검증 문구 짧음 | `/v1/usage` 와 동일 문구 | 두 엔드포인트 날짜 정책 일치 |
+| (문서) | 인라인 주석에 `401` 오기 | 제거 (인증 미요구 유지) | 실제 응답에 401 없음 |
+
+검증: 예시 + 음성(negative) 케이스를 JSON Schema(Draft7)로 통과 확인
+(identified+null 거부, anonymous+string 거부, 빈 model 거부, `Z` 없는 timestamp 거부 등).
+
+---
+
 ## v2.0.0 — v1 대비 변경사항 (쉽게 설명)
 
 v2는 새 기능을 넣었다기보다, **"숫자가 조용히 틀어지거나 사라지는 경우"를 전부 막은 버전**이다.
