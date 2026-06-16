@@ -1,0 +1,319 @@
+openapi: 3.1.0
+
+info:
+  title: Service Usage Provider API
+  version: 1.0.0
+  description: |
+    사내 각 서비스가 **자신의 LLM 사용량**(input/output token, request 수)을 노출하기 위해
+    구현해야 하는 **표준 조회 API 계약(contract)**.
+
+    ## 호출 방향
+    - 각 서비스가 이 스펙대로 `GET` 엔드포인트를 구현(노출)한다.
+    - 중앙 **수집기/대시보드**가 각 서비스의 이 API 를 **호출(pull)** 하여 사용량을 수합한다.
+    - 데이터를 서비스가 밀어넣는(push) 방식이 아니라, 수집기가 끌어오는(pull) 방식이다.
+    - 호출 빈도는 일자당 1회 정도(하루 단위 집계 수합)를 기준으로 한다.
+    - 사내 신뢰 네트워크 내 호출을 전제로 하며, 별도 인증(API Key 등)은 요구하지 않는다.
+
+    ## 집계 기간 / 시간대
+    - 모든 일자(`date`)는 **KST(Asia/Seoul, +09:00)** 기준이다.
+    - `date` 는 해당 일자의 **00:00 ~ 24:00 (KST) 하루 전체**를 사용자×모델 단위로 집계한 값을
+      의미한다.
+    - 운영상 수집기는 **다음날 새벽 02:00 (KST)** 경에 **직전날**(`date` = 어제) 데이터를
+      호출해 수합하는 것을 기준으로 한다. 따라서 서비스는 KST 자정 이후 직전날 데이터가
+      확정되어 제공 가능해야 한다.
+
+    ## 서비스 / 서비스 그룹
+    - 각 응답은 자신의 서비스 식별자(`service`)와, 그 상위 개념인
+      **서비스 그룹(`serviceGroup`, 과제명)** 을 함께 포함한다.
+    - 예) 서비스 그룹 `Code Mate` 아래에 서비스 `Coding Agent` 등이 속한다.
+      예) 서비스 그룹 `DS Assistant` 아래에 서비스 `DS Assistant Portal`, `DS Assistant API (AI센터 Enterprise)` 등이 속한다.
+      예) 서비스 그룹 `XX Agentic AI` 아래에 서비스 `XX 개발 지식 Agent`, `XX 불량 데이터 분석 Agent` 등이 속한다.
+
+    - 수집기/대시보드는 `serviceGroup` 으로 과제 단위 합계를, `service` 로 서비스 단위
+      합계를 구성한다.
+
+    ## 데이터 모델
+    - 사용량은 특정 일자(`date`)에 대해 **사용자×모델 단위로 사전 집계**되어 제공된다.
+    - `userId` 는 nullable 이며, 분류는 `userType` enum(`identified`/`anonymous`/`unclassified`)
+      으로 구분한다. 미분류/비실명 사용량도 누락 없이 포함된다.
+    - `model` 은 선택 필드이며, 생략 시 모델 무관 합산으로 간주한다.
+
+    ## 규모 / 페이지네이션
+    - 서비스당 사용자는 최대 1만 명 수준이며, 모델별로 나뉘면 행 수는 더 늘어난다.
+    - 한 응답에 모두 담기 어려우므로 **cursor 기반 페이지네이션**을 사용한다.
+
+servers:
+  - url: https://{serviceHost}
+    description: 사용량을 노출하는 각 서비스의 베이스 URL
+    variables:
+      serviceHost:
+        default: chat-svc.internal.example.com
+        description: 서비스별 호스트
+
+# 인증을 요구하지 않음 (사내 신뢰 네트워크 전제). 빈 배열로 명시한다.
+security: []
+
+tags:
+  - name: usage
+    description: 사용량 조회 (수집기/대시보드가 각 서비스를 호출)
+
+paths:
+  /v1/usage:
+    get:
+      operationId: getUsage
+      summary: 일자별 사용량 조회 (사용자×모델 단위)
+      description: |
+        지정한 일자(`date`)의 사용량을 사용자×모델 단위로 집계해 페이지 단위로 반환한다.
+        수집기는 `nextCursor` 가 없을 때까지 반복 호출하여 전체를 수합한다.
+
+        ### 페이지네이션
+        - 첫 호출은 `cursor` 없이 한다.
+        - 응답의 `nextCursor` 를 다음 호출의 `cursor` 로 전달한다.
+        - `nextCursor` 가 응답에 없으면 마지막 페이지이다.
+        - `cursor` 가 주어지면 `date`/`limit` 등 다른 파라미터는 최초 호출과 동일해야 한다.
+      tags:
+        - usage
+      parameters:
+        - name: date
+          in: query
+          required: true
+          description: 사용량 발생 일자 (KST 기준, YYYY-MM-DD). 보통 어제 날짜.
+          schema:
+            type: string
+            format: date
+            examples: ['2026-06-15']
+        - name: cursor
+          in: query
+          required: false
+          description: 이전 응답의 `nextCursor`. 첫 페이지에서는 생략한다.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: 페이지당 최대 행 수
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 5000
+            default: 1000
+      responses:
+        '200':
+          description: 해당 일자의 사용량 페이지
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsagePage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: 해당 일자의 데이터가 없다 (선택적으로 빈 페이지 200 으로 대체 가능).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/usage/summary:
+    get:
+      operationId: getUsageSummary
+      summary: 일자별 사용량 합계 (서비스 단위)
+      description: |
+        지정한 일자의 서비스 전체 합계를 단건으로 반환한다. 페이지네이션 없이 빠르게
+        총량만 확인할 때 사용한다 (대시보드 요약 카드 등). 상세 분해는 `GET /v1/usage` 를 쓴다.
+      tags:
+        - usage
+      parameters:
+        - name: date
+          in: query
+          required: true
+          description: 사용량 발생 일자 (KST 기준, YYYY-MM-DD). 보통 어제 날짜.
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: 해당 일자의 서비스 합계
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageSummary'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+components:
+  responses:
+    BadRequest:
+      description: 잘못된 요청 (파라미터 형식 오류, 잘못된 cursor 등)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    UserType:
+      type: string
+      description: |
+        사용자 분류.
+        - `identified`: 식별된 실명 사용자 (`userId` 존재)
+        - `anonymous`: 비실명 계정
+        - `unclassified`: 분류되지 않은 사용량
+      enum: [identified, anonymous, unclassified]
+
+    UsageRecord:
+      type: object
+      description: 사용자×모델 단위로 하루치 집계된 사용량 한 행. 논리 키는 `(userId, userType, model)`.
+      required: [userType, inputTokens, outputTokens, requests]
+      properties:
+        userId:
+          type: [string, 'null']
+          description: 사용자 식별자. 비실명/미분류는 null.
+          maxLength: 256
+        userType:
+          $ref: '#/components/schemas/UserType'
+        model:
+          type: string
+          description: LLM 모델 식별자. 생략 시 모델 무관 합산으로 간주한다.
+          maxLength: 128
+        inputTokens:
+          type: integer
+          format: int64
+          minimum: 0
+        outputTokens:
+          type: integer
+          format: int64
+          minimum: 0
+        requests:
+          type: integer
+          format: int64
+          minimum: 0
+      examples:
+        - userId: user-1024
+          userType: identified
+          model: claude-opus-4-8
+          inputTokens: 152000
+          outputTokens: 48200
+          requests: 312
+        - userId: null
+          userType: anonymous
+          model: claude-haiku-4-5
+          inputTokens: 23000
+          outputTokens: 5100
+          requests: 88
+        - userId: null
+          userType: unclassified
+          inputTokens: 4000
+          outputTokens: 900
+          requests: 12
+
+    UsagePage:
+      type: object
+      required: [serviceGroup, service, date, records]
+      properties:
+        serviceGroup:
+          type: string
+          description: 서비스의 상위 개념인 서비스 그룹(과제명)
+          maxLength: 256
+          examples: ['XX Agentic AI']
+        service:
+          type: string
+          description: 이 데이터를 제공하는 서비스 식별자
+          maxLength: 256
+          examples: ['XX 개발 지식 Agent']
+        date:
+          type: string
+          format: date
+          description: 사용량 발생 일자 (KST 기준)
+          examples: ['2026-06-15']
+        records:
+          type: array
+          description: 이 페이지의 사용량 행. `(userId, userType, model)` 는 중복되지 않는다.
+          items:
+            $ref: '#/components/schemas/UsageRecord'
+        nextCursor:
+          type: string
+          description: 다음 페이지 커서. 존재하지 않으면 마지막 페이지이다.
+      examples:
+        - serviceGroup: XX Agentic AI
+          service: Flash 개발 지식 Agent
+          date: '2026-06-15'
+          records:
+            - userId: user-1024
+              userType: identified
+              model: claude-opus-4-8
+              inputTokens: 152000
+              outputTokens: 48200
+              requests: 312
+            - userId: null
+              userType: anonymous
+              model: claude-haiku-4-5
+              inputTokens: 23000
+              outputTokens: 5100
+              requests: 88
+            - userId: null
+              userType: unclassified
+              inputTokens: 4000
+              outputTokens: 900
+              requests: 12
+          nextCursor: eyJvZmZzZXQiOjEwMDB9
+
+    UsageSummary:
+      type: object
+      required: [serviceGroup, service, date, inputTokens, outputTokens, requests, distinctUsers]
+      properties:
+        serviceGroup:
+          type: string
+          description: 서비스의 상위 개념인 서비스 그룹(과제명)
+          maxLength: 256
+          examples: ['XX Agentic AI']
+        service:
+          type: string
+          maxLength: 256
+          examples: ['XX 개발 지식 Agent']
+        date:
+          type: string
+          format: date
+        inputTokens:
+          type: integer
+          format: int64
+        outputTokens:
+          type: integer
+          format: int64
+        requests:
+          type: integer
+          format: int64
+        distinctUsers:
+          type: integer
+          description: 식별된(userId 존재) 고유 사용자 수
+      examples:
+        - serviceGroup: XX Agentic AI
+          service: XX 개발 지식 Agent
+          date: '2026-06-15'
+          inputTokens: 179000
+          outputTokens: 54200
+          requests: 412
+          distinctUsers: 1
+
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: 기계 판독용 에러 코드
+          examples: [invalid_cursor]
+        message:
+          type: string
+          description: 사람이 읽는 에러 설명
+        details:
+          type: array
+          description: 필드 단위 상세 오류 (선택)
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              issue:
+                type: string
+      examples:
+        - code: invalid_cursor
+          message: 'cursor is malformed or expired'
