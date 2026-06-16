@@ -1,0 +1,31 @@
+# token-usage-api-spec
+
+사내 AI 추론 서비스들의 **사용자별 토큰 사용량**을 수합하기 위한 표준 조회 API 계약(OpenAPI).
+
+각 서비스가 이 스펙대로 `GET` 엔드포인트를 노출하면, 중앙 수집기/대시보드가 일 단위로
+각 서비스를 **호출(pull)** 하여 사용량을 수합한다.
+
+## 파일
+
+- [`token-usage-api.v2.yaml`](./token-usage-api.v2.yaml) — OpenAPI 3.1 스펙 (현행, v2.0.0)
+
+## 핵심 설계
+
+- **방향**: pull (수집기가 각 서비스의 `GET /v1/usage` 를 호출). push 도구(OTel 등)는
+  어댑터 서비스로 이 계약을 충족시킨다.
+- **집계 단위**: 일자(KST) × 사용자 × 모델, 사전 집계.
+- **토큰**: `inputTokens`(cache read 제외) / `cacheReadTokens` / `cacheCreationTokens` /
+  `outputTokens`(reasoning 포함). 캐시 미지원 백엔드(vLLM 등)는 cache 필드 0.
+- **확정 상태**: `status`(final|partial) + `generatedAt` 으로 "미확정"과 "사용량 0" 을 구분
+  (미확정은 `409 data_not_ready`).
+- **집계 키**: `serviceGroupId`/`serviceId`(불변·정규화) + 표시명 분리.
+- **페이지네이션**: stateless keyset 기반 cursor.
+
+자세한 변경 이력은 스펙 파일 끝의 `CHANGELOG (v1 → v2)` 참고.
+
+## 엔드포인트
+
+| Method | Path | 설명 |
+|---|---|---|
+| `GET` | `/v1/usage` | 일자별 사용량 (사용자×모델, 페이지네이션) |
+| `GET` | `/v1/usage/summary` | 일자별 서비스 합계 (단건) |
