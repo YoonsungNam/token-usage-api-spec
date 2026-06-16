@@ -2,84 +2,38 @@ openapi: 3.1.0
 
 info:
   title: Service Usage Provider API
-  version: 2.1.0
+  version: 2.2.0
   description: |
-    사내 각 서비스가 **자신의 LLM 사용량**(input/output/cache token, request 수)을 노출하기 위해
-    구현해야 하는 **표준 조회 API 계약(contract)**.
+    사내 AI 추론 서비스가 **자신의 LLM 토큰 사용량**을 노출하기 위한 표준 조회 API.
+    중앙 수집기가 매일 각 서비스의 이 API 를 **호출(pull)** 하여 사용자별 사용량을 수합한다.
+    (서비스가 구현해야 할 계약이며, 변경 이력은 레포 `CHANGELOG.md` 참고)
 
-    > v2 변경 이력은 문서 맨 끝 `## CHANGELOG` 및 레포의 `CHANGELOG.md` 참고.
+    ## 구현 요건
+    - **호출 주기**: 일 1회. 수집기는 다음날 새벽에 직전날(`date`=어제) 데이터를 가져간다.
+    - **집계 단위**: `date`(KST 하루 전체) × `userId` × `userType` × `model` 로 **사전 집계**해
+      행으로 제공한다. 한 응답 내 같은 키 조합은 중복되지 않는다.
+    - **확정 데이터만 반환**한다.
+      - 확정 전이면 `409`(빈 `200` 으로 응답 금지 — "사용량 0"과 구분되어야 한다).
+      - 사용량이 실제로 0 이면 `200` + 빈 목록.
+    - **페이지네이션**: 행이 많으면 `cursor` 로 나눠 반환한다. 같은 `date` 의 데이터셋은
+      페이지네이션 도중 변하면 안 된다.
+    - **인증 없음**(사내 신뢰망 전제). 수집기 IP 만 허용하는 네트워크 ACL 권장.
 
-    ## 호출 방향
-    - 각 서비스가 이 스펙대로 `GET` 엔드포인트를 구현(노출)한다.
-    - 중앙 **수집기/대시보드**가 각 서비스의 이 API 를 **호출(pull)** 하여 사용량을 수합한다.
-    - 데이터를 서비스가 밀어넣는(push) 방식이 아니라, 수집기가 끌어오는(pull) 방식이다.
-    - 호출 빈도는 일자당 1회 정도(하루 단위 집계 수합)를 기준으로 한다.
-    - 사내 신뢰 네트워크 내 호출을 전제로 하며, 별도 인증(API Key 등)은 요구하지 않는다.
-      다만 응답에는 사용자별 토큰 사용량(준-PII)이 포함되므로, **수집기 IP 만 허용하는
-      네트워크 ACL** 등 비-API 통제를 권장한다. 향후 mTLS / 토큰 도입 여지를 남겨 둔다.
+    ## 식별자
+    - `serviceGroupId` / `serviceId`: 집계용 **불변 키**(소문자-하이픈, 공백 없음). 대시보드는
+      이 키로 묶는다.
+    - `serviceGroup` / `service`: 사람이 보는 **표시명**(변경 가능).
+    - `userId`: 사내 식별자(문자열). `userType` 별 규칙:
+      - `identified` (실명 사용자) → `userId` 필수
+      - `anonymous` (비실명 계정, 계정별 구분됨) → `userId` 필수
+      - `unclassified` (사용자 매핑 없는 사용량) → `userId` null, 모델 단위로 합산
+    - `model`: 필수. 모르면 `"unknown"`. (일부 행만 model 있는 혼재 금지 — 이중 집계 방지)
 
-    > **OTel(push) 백엔드 어댑터:** Claude Code 등 OpenTelemetry 로 사용량을 push 하는 도구는
-    > 이 GET API 를 직접 제공하지 않는다. 이런 경우 OTel Collector + 저장소 위에
-    > "일자별 사용자×모델 집계 → `GET /v1/usage`" 를 노출하는 **어댑터 서비스**를 하나 세워
-    > 이 계약을 충족시킨다. (예: `claude_code.token.usage` 메트릭의 `type`
-    > = input/output/cacheRead/cacheCreation 를 본 스펙의 토큰 필드로 매핑)
-
-    ## 집계 기간 / 시간대
-    - 모든 일자(`date`)는 **KST(Asia/Seoul, +09:00)** 기준이다.
-    - `date` 는 해당 일자의 **00:00 ~ 24:00 (KST) 하루 전체**를 사용자×모델 단위로 집계한 값을
-      의미한다.
-    - 운영상 수집기는 **다음날 새벽 02:00 (KST)** 경에 **직전날**(`date` = 어제) 데이터를
-      호출해 수합하는 것을 기준으로 한다. 따라서 서비스는 KST 자정 이후 직전날 데이터가
-      확정되어 제공 가능해야 한다.
-    - OTel 등 UTC 기준 원천 데이터를 쓰는 경우, KST 자정 경계로 재집계(bucketing)해야 한다.
-
-    ## 데이터 확정(finalization) — 중요
-    - **이 API 는 확정(final) 데이터만 `200` 으로 반환한다.** 부분/집계 중 데이터는 노출하지 않는다.
-    - **"사용량 0" 과 "아직 미확정" 은 반드시 구분한다:**
-      - 유효한 일자인데 사용량이 진짜 0  → `200` + 빈 `records`
-      - 유효한 일자이나 아직 집계 전        → `409 data_not_ready` (수집기가 `Retry-After` 후 재시도)
-      이 구분이 없으면 "미확정"을 "사용량 0"으로 오인해 데이터가 조용히 유실된다.
-    - 따라서 수집기는 **`200` 으로 받은 페이지만 영구 적재**하면 되고, 부분 적재/무효화 로직이
-      필요 없다. (산출 시각은 `generatedAt` 으로 확인)
-
-    ## 서비스 / 서비스 그룹 (집계 키 안정화)
-    - 각 응답은 자신의 서비스 식별자와, 그 상위 개념인 **서비스 그룹(과제명)** 을 함께 포함한다.
-    - 대시보드의 GROUP BY 키가 흔들리지 않도록 **불변 ID 와 표시명을 분리**한다:
-      - `serviceGroupId` / `serviceId` : 집계 키. 불변, 정규화(소문자/하이픈, 공백 없음).
-      - `serviceGroup` / `service`     : 사람이 보는 표시명. 변경 가능.
-    - 예) `serviceGroupId: code-mate`, `serviceGroup: "Code Mate"` 아래에
-      `serviceId: coding-agent`, `service: "Coding Agent"`.
-    - 수집기/대시보드는 **반드시 `*Id` 로 그룹핑**하고, 표시명은 라벨 용도로만 쓴다.
-
-    ## 데이터 모델
-    - 사용량은 특정 일자(`date`)에 대해 **사용자×모델 단위로 사전 집계**되어 제공된다.
-    - 논리 키는 `(userId, userType, model)` 이며, 한 응답 내에서 중복되지 않는다.
-    - `userId` 는 `userType` 에 따라 제약된다(스키마로 강제):
-      - `identified` → `userId` **필수, 문자열**.
-      - `anonymous` / `unclassified` → `userId` 는 **null**.
-      미분류/비실명 사용량도 누락 없이 포함된다.
-    - `model` 은 **항상 존재**한다(required). 이중 집계를 막기 위해 "일부 행만 model 있음" 을 금지한다.
-      모델을 알 수 없는 경우 생략하지 말고 명시적 sentinel `"unknown"` 을 사용한다.
-
-    ## 토큰 정의 (단가가 다르므로 분리 집계)
-    - `inputTokens` : **cache read 를 포함하지 않는** 순수 input 토큰.
-    - `cacheReadTokens` : 캐시에서 읽힌 토큰(프론티어 서비스 단가 ≈ base input 의 0.1×). optional, default 0.
-    - `cacheCreationTokens` : 캐시에 쓰인 토큰(Anthropic 기준 ≈ 1.25×~2×). optional, default 0.
-    - `outputTokens` : output 토큰. **reasoning/thinking 토큰을 포함**한다.
-    - 캐시 개념이 없는 백엔드(예: vLLM 자체 호스팅)는 cache 필드를 0(또는 생략) 으로 두고
-      모든 input 을 `inputTokens` 에 담는다.
-    - 총 input 처리량 = `inputTokens + cacheReadTokens + cacheCreationTokens`.
-
-    ## 토큰/요청 출처 정의 (서비스 간 비교 가능성)
-    - 토큰 값은 **provider 가 응답으로 보고한 usage 값**을 원천으로 한다(자체 tokenizer 추정 금지).
-    - `requests` 는 **LLM provider 로의 API 호출 수**를 의미한다. 사용자 UI 요청 수가 아니다.
-      스트리밍 중단/에러로 끝난 호출도 provider 가 usage 를 보고했다면 포함한다.
-
-    ## 규모 / 페이지네이션
-    - 서비스당 사용자는 최대 1만 명 수준이며, 모델별로 나뉘면 행 수는 더 늘어난다.
-    - 한 응답에 모두 담기 어려우므로 **cursor 기반 페이지네이션**을 사용한다.
-    - `cursor` 는 **stateless keyset 기반**(만료되지 않음)을 권장한다. 확정된 과거 일자의
-      데이터셋은 페이지네이션 도중 불변이어야 한다(행 누락/중복 금지).
+    ## 토큰 필드 (값은 provider 가 보고한 usage 기준)
+    - `inputTokens`: input 토큰 (**cache read 제외**)
+    - `outputTokens`: output 토큰 (reasoning 포함)
+    - `cacheReadTokens` / `cacheCreationTokens`: 캐시 토큰 (없으면 0 또는 생략)
+    - `requests`: provider 로의 API 호출 수
 
 servers:
   - url: https://{serviceHost}
@@ -89,12 +43,11 @@ servers:
         default: chat-svc.internal.example.com
         description: 서비스별 호스트
 
-# 인증을 요구하지 않음 (사내 신뢰 네트워크 전제). 빈 배열로 명시한다.
 security: []
 
 tags:
   - name: usage
-    description: 사용량 조회 (수집기/대시보드가 각 서비스를 호출)
+    description: 사용량 조회
 
 paths:
   /v1/usage:
@@ -102,27 +55,17 @@ paths:
       operationId: getUsage
       summary: 일자별 사용량 조회 (사용자×모델 단위)
       description: |
-        지정한 일자(`date`)의 **확정된** 사용량을 사용자×모델 단위로 집계해 페이지 단위로 반환한다.
-        수집기는 `nextCursor` 가 없을 때까지 반복 호출하여 전체를 수합한다.
+        지정한 일자(`date`)의 확정된 사용량을 사용자×모델 단위로 페이지 단위 반환한다.
 
-        ### 페이지네이션
-        - 첫 호출은 `cursor` 없이 한다.
-        - 응답의 `nextCursor` 를 다음 호출의 `cursor` 로 전달한다.
-        - `nextCursor` 가 응답에 없으면 마지막 페이지이다.
-        - `cursor` 가 주어지면 `date`/`limit` 등 다른 파라미터는 최초 호출과 동일해야 한다.
-        - 페이지네이션 도중 `date` 의 데이터셋은 불변이어야 한다(재집계로 행이 흔들리면 안 됨).
-        - `cursor` 가 (드물게) 만료/무효이면 `400 invalid_cursor` 를 반환하고,
-          수집기는 처음부터(커서 없이) 다시 시작한다.
-      tags:
-        - usage
+        **페이지네이션**: 첫 호출은 `cursor` 없이. 응답의 `nextCursor` 를 다음 호출에 전달하고,
+        `nextCursor` 가 없으면 마지막 페이지다. `cursor` 사용 시 `date`/`limit` 은 최초 호출과
+        동일해야 한다.
+      tags: [usage]
       parameters:
         - name: date
           in: query
           required: true
-          description: |
-            사용량 발생 일자 (KST 기준, YYYY-MM-DD). 보통 어제 날짜.
-            당일/미래 일자는 `400` 으로 거절한다(아직 확정 불가). 보존 기간을 초과한
-            과거 일자는 `404` 일 수 있다.
+          description: 사용량 발생 일자 (KST, YYYY-MM-DD). 보통 어제. 당일/미래는 400, 보존 초과는 404.
           schema:
             type: string
             format: date
@@ -130,7 +73,7 @@ paths:
         - name: cursor
           in: query
           required: false
-          description: 이전 응답의 `nextCursor`. 첫 페이지에서는 생략한다.
+          description: 이전 응답의 `nextCursor`. 첫 페이지에서는 생략.
           schema:
             type: string
         - name: limit
@@ -144,9 +87,7 @@ paths:
             default: 1000
       responses:
         '200':
-          description: |
-            해당 일자의 **확정된** 사용량 페이지. 유효한 일자이나 사용량이 0 이면
-            `records: []` 로 반환한다(404 로 대체하지 않는다). 아직 확정 전이면 `409` 이다.
+          description: 확정된 사용량 페이지 (사용량 0 이면 빈 `records`)
           content:
             application/json:
               schema:
@@ -169,27 +110,21 @@ paths:
       operationId: getUsageSummary
       summary: 일자별 사용량 합계 (서비스 단위)
       description: |
-        지정한 일자의 **확정된** 서비스 전체 합계를 단건으로 반환한다. 페이지네이션 없이 빠르게
-        총량만 확인할 때 사용한다 (대시보드 요약 카드 등). 상세 분해는 `GET /v1/usage` 를 쓴다.
-
-        요약 토큰 합은 `GET /v1/usage` 전체 행의 합과 **정확히 일치**해야 한다(정합성 보장).
-      tags:
-        - usage
+        지정한 일자의 확정된 서비스 전체 합계를 단건 반환한다(대시보드 요약용).
+        합계는 `GET /v1/usage` 전체 행의 합과 일치해야 한다.
+      tags: [usage]
       parameters:
         - name: date
           in: query
           required: true
-          description: |
-            사용량 발생 일자 (KST 기준, YYYY-MM-DD). 보통 어제 날짜.
-            당일/미래 일자는 `400` 으로 거절한다(아직 확정 불가). 보존 기간을 초과한
-            과거 일자는 `404` 일 수 있다.
+          description: 사용량 발생 일자 (KST, YYYY-MM-DD). 보통 어제. 당일/미래는 400, 보존 초과는 404.
           schema:
             type: string
             format: date
             examples: ['2026-06-15']
       responses:
         '200':
-          description: 해당 일자의 확정된 서비스 합계
+          description: 확정된 서비스 합계
           content:
             application/json:
               schema:
@@ -210,9 +145,7 @@ paths:
 components:
   responses:
     BadRequest:
-      description: |
-        잘못된 요청. 예) 파라미터 형식 오류, `limit` 범위 초과, 당일/미래 `date`,
-        잘못되었거나 만료된 `cursor`(`code: invalid_cursor`).
+      description: 잘못된 요청 (파라미터 형식 오류, `limit` 범위 초과, 당일/미래 `date`, 잘못된/만료 `cursor`)
       content:
         application/json:
           schema:
@@ -222,12 +155,8 @@ components:
               value:
                 code: invalid_cursor
                 message: 'cursor is malformed or expired; restart pagination without cursor'
-            futureDate:
-              value:
-                code: invalid_date
-                message: 'date must not be today or in the future (KST)'
     NotFound:
-      description: 보존 기간을 초과하여 해당 일자의 데이터를 더 이상 제공할 수 없다.
+      description: 보존 기간 초과로 해당 일자 데이터를 제공할 수 없음
       content:
         application/json:
           schema:
@@ -238,9 +167,7 @@ components:
                 code: data_not_retained
                 message: 'usage data for the requested date is past the retention window'
     DataNotReady:
-      description: |
-        유효한 일자이나 아직 집계가 확정되지 않았다("사용량 0" 과 구분됨).
-        수집기는 `Retry-After` 만큼 대기 후 재시도한다.
+      description: 해당 일자 데이터가 아직 확정 전 ("사용량 0" 과 구분). `Retry-After` 후 재시도.
       headers:
         Retry-After:
           description: 재시도까지 권장 대기 시간(초)
@@ -257,7 +184,7 @@ components:
                 code: data_not_ready
                 message: 'usage for the requested date is not finalized yet; retry later'
     TooManyRequests:
-      description: 호출 빈도 제한 초과.
+      description: 호출 빈도 제한 초과
       headers:
         Retry-After:
           description: 재시도까지 권장 대기 시간(초)
@@ -274,7 +201,7 @@ components:
                 code: rate_limited
                 message: 'too many requests; retry after the indicated delay'
     InternalError:
-      description: 서버 내부 오류. 수집기는 백오프 후 재시도할 수 있다.
+      description: 서버 내부 오류 (백오프 후 재시도 가능)
       content:
         application/json:
           schema:
@@ -285,7 +212,7 @@ components:
                 code: internal_error
                 message: 'unexpected server error'
     ServiceUnavailable:
-      description: 일시적으로 서비스 불가. 수집기는 백오프 후 재시도할 수 있다.
+      description: 일시적 서비스 불가 (백오프 후 재시도 가능)
       headers:
         Retry-After:
           schema:
@@ -306,31 +233,25 @@ components:
       type: string
       description: |
         사용자 분류.
-        - `identified`: 식별된 실명 사용자 (`userId` 필수, 문자열). 예) OAuth account uuid/email.
-        - `anonymous`: 비실명 사용량. `userId` 는 null 이며, 같은 모델의 모든 anonymous
-          사용량은 **단일 행으로 합산**된다(계정별로 분리하지 않는다).
-        - `unclassified`: 분류 정보가 없는 사용량. `userId` 는 null. 같은 모델 단위로 합산된다.
+        - `identified`: 실명 사용자. `userId` 필수.
+        - `anonymous`: 비실명 계정(계정별로 구분됨). `userId` 필수.
+        - `unclassified`: 사용자 매핑이 없는 사용량. `userId` null, 모델 단위로 합산.
       enum: [identified, anonymous, unclassified]
 
     UsageRecord:
       type: object
-      description: |
-        사용자×모델 단위로 하루치 집계된 사용량 한 행. 논리 키는 `(userId, userType, model)`.
-        `userId` 는 `userType` 에 따라 조건부로 제약된다(아래 allOf 참조).
+      description: 사용자×모델 단위 하루치 집계 행. 논리 키 `(userId, userType, model)`.
       required: [userType, model, inputTokens, outputTokens, requests]
       properties:
         userId:
           type: [string, 'null']
-          description: |
-            사용자 식별자. `identified` 면 문자열 필수, `anonymous`/`unclassified` 면 null.
+          description: 사내 식별자. `identified`/`anonymous` 면 문자열 필수, `unclassified` 면 null.
           maxLength: 256
         userType:
           $ref: '#/components/schemas/UserType'
         model:
           type: string
-          description: |
-            LLM 모델 식별자. **항상 존재해야 한다(required)**. 모델을 알 수 없으면
-            생략하지 말고 `"unknown"` 을 사용한다. (일부 행만 model 을 갖는 혼재는 금지)
+          description: LLM 모델 식별자. 필수이며, 모르면 `"unknown"`.
           minLength: 1
           maxLength: 128
           examples: ['claude-opus-4-8']
@@ -338,61 +259,50 @@ components:
           type: integer
           format: int64
           minimum: 0
-          description: cache read 를 제외한 순수 input 토큰.
+          description: input 토큰 (cache read 제외)
         cacheReadTokens:
           type: integer
           format: int64
           minimum: 0
           default: 0
-          description: 캐시에서 읽힌 토큰. 캐시 미지원 백엔드는 0(또는 생략).
+          description: 캐시 읽기 토큰 (없으면 0/생략)
         cacheCreationTokens:
           type: integer
           format: int64
           minimum: 0
           default: 0
-          description: 캐시에 쓰인 토큰. 캐시 미지원 백엔드는 0(또는 생략).
+          description: 캐시 쓰기 토큰 (없으면 0/생략)
         outputTokens:
           type: integer
           format: int64
           minimum: 0
-          description: output 토큰(reasoning/thinking 포함).
+          description: output 토큰 (reasoning 포함)
         requests:
           type: integer
           format: int64
           minimum: 0
-          description: LLM provider 로의 API 호출 수.
+          description: provider API 호출 수
       allOf:
-        # identified → userId 필수, 문자열(null 불가)
+        # identified → userId 필수, 문자열
         - if:
-            properties:
-              userType:
-                const: identified
+            properties: { userType: { const: identified } }
             required: [userType]
           then:
             required: [userId]
-            properties:
-              userId:
-                type: string
-        # anonymous → userId 는 null
+            properties: { userId: { type: string } }
+        # anonymous → userId 필수, 문자열 (비실명이지만 계정별 사내 id)
         - if:
-            properties:
-              userType:
-                const: anonymous
+            properties: { userType: { const: anonymous } }
             required: [userType]
           then:
-            properties:
-              userId:
-                type: 'null'
+            required: [userId]
+            properties: { userId: { type: string } }
         # unclassified → userId 는 null
         - if:
-            properties:
-              userType:
-                const: unclassified
+            properties: { userType: { const: unclassified } }
             required: [userType]
           then:
-            properties:
-              userId:
-                type: 'null'
+            properties: { userId: { type: 'null' } }
       examples:
         - userId: user-1024
           userType: identified
@@ -402,12 +312,10 @@ components:
           cacheCreationTokens: 12000
           outputTokens: 48200
           requests: 312
-        - userId: null
+        - userId: anon-3201
           userType: anonymous
           model: claude-haiku-4-5
           inputTokens: 23000
-          cacheReadTokens: 0
-          cacheCreationTokens: 0
           outputTokens: 5100
           requests: 88
         - userId: null
@@ -419,56 +327,47 @@ components:
 
     UsagePage:
       type: object
-      required:
-        - serviceGroupId
-        - serviceGroup
-        - serviceId
-        - service
-        - date
-        - generatedAt
-        - records
+      required: [serviceGroupId, serviceGroup, serviceId, service, date, generatedAt, records]
       properties:
         serviceGroupId:
           type: string
-          description: 서비스 그룹(과제) 집계 키. 불변, 정규화.
+          description: 서비스 그룹(과제) 집계 키 (불변)
           pattern: '^[a-z0-9][a-z0-9-]{0,127}$'
           examples: ['xx-agentic-ai']
         serviceGroup:
           type: string
-          description: 서비스 그룹 표시명(라벨 용도).
+          description: 서비스 그룹 표시명
           maxLength: 256
           examples: ['XX Agentic AI']
         serviceId:
           type: string
-          description: 이 데이터를 제공하는 서비스의 집계 키. 불변, 정규화.
+          description: 서비스 집계 키 (불변)
           pattern: '^[a-z0-9][a-z0-9-]{0,127}$'
           examples: ['xx-dev-knowledge-agent']
         service:
           type: string
-          description: 서비스 표시명(라벨 용도).
+          description: 서비스 표시명
           maxLength: 256
           examples: ['XX 개발 지식 Agent']
         date:
           type: string
           format: date
-          description: 사용량 발생 일자 (KST 기준)
+          description: 사용량 발생 일자 (KST)
           examples: ['2026-06-15']
         generatedAt:
           type: string
           format: date-time
-          description: |
-            이 집계 스냅샷이 산출된 시각. **UTC 로 `Z` suffix 를 사용한 RFC3339** 만 허용한다
-            (offset 표기 금지). 신선도 판단용.
+          description: 집계 산출 시각 (UTC, `Z` suffix)
           pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$'
           examples: ['2026-06-16T17:05:00Z']
         records:
           type: array
-          description: 이 페이지의 사용량 행. `(userId, userType, model)` 는 중복되지 않는다.
+          description: 이 페이지의 사용량 행
           items:
             $ref: '#/components/schemas/UsageRecord'
         nextCursor:
           type: string
-          description: 다음 페이지 커서. 존재하지 않으면 마지막 페이지이다.
+          description: 다음 페이지 커서. 없으면 마지막 페이지.
       examples:
         - serviceGroupId: xx-agentic-ai
           serviceGroup: XX Agentic AI
@@ -485,7 +384,7 @@ components:
               cacheCreationTokens: 12000
               outputTokens: 48200
               requests: 312
-            - userId: null
+            - userId: anon-3201
               userType: anonymous
               model: claude-haiku-4-5
               inputTokens: 23000
@@ -501,17 +400,7 @@ components:
 
     UsageSummary:
       type: object
-      required:
-        - serviceGroupId
-        - serviceGroup
-        - serviceId
-        - service
-        - date
-        - generatedAt
-        - inputTokens
-        - outputTokens
-        - requests
-        - distinctIdentifiedUsers
+      required: [serviceGroupId, serviceGroup, serviceId, service, date, generatedAt, inputTokens, outputTokens, requests, distinctIdentifiedUsers]
       properties:
         serviceGroupId:
           type: string
@@ -536,8 +425,7 @@ components:
         generatedAt:
           type: string
           format: date-time
-          description: |
-            이 집계 스냅샷이 산출된 시각. UTC `Z` suffix RFC3339 만 허용.
+          description: 집계 산출 시각 (UTC, `Z` suffix)
           pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$'
           examples: ['2026-06-16T17:05:00Z']
         inputTokens:
@@ -549,13 +437,11 @@ components:
           format: int64
           minimum: 0
           default: 0
-          description: optional, default 0 (UsageRecord 와 동일 정책).
         cacheCreationTokens:
           type: integer
           format: int64
           minimum: 0
           default: 0
-          description: optional, default 0 (UsageRecord 와 동일 정책).
         outputTokens:
           type: integer
           format: int64
@@ -568,11 +454,7 @@ components:
           type: integer
           minimum: 0
           description: |
-            식별된(`userType=identified`) 고유 사용자 수.
-            **서비스/그룹을 가로질러 합산할 수 없는(non-additive) 값**이다
-            (동일 사용자가 여러 서비스를 쓰면 중복). 대시보드는 그룹 합계를
-            "서비스 distinctIdentifiedUsers 의 합"으로 만들면 안 된다.
-            anonymous/unclassified 는 정의상 distinct 계산이 불가하므로 제외한다.
+            실명(`identified`) 고유 사용자 수. 서비스/그룹 간 합산 불가(non-additive).
       examples:
         - serviceGroupId: xx-agentic-ai
           serviceGroup: XX Agentic AI
@@ -594,9 +476,8 @@ components:
         code:
           type: string
           description: |
-            기계 판독용 에러 코드. 예) `invalid_cursor`, `invalid_date`,
-            `data_not_ready`, `data_not_retained`, `rate_limited`, `internal_error`,
-            `service_unavailable`.
+            기계 판독용 에러 코드. 예) `invalid_cursor`, `invalid_date`, `data_not_ready`,
+            `data_not_retained`, `rate_limited`, `internal_error`, `service_unavailable`.
           examples: [invalid_cursor]
         message:
           type: string
@@ -607,32 +488,8 @@ components:
           items:
             type: object
             properties:
-              field:
-                type: string
-              issue:
-                type: string
+              field: { type: string }
+              issue: { type: string }
       examples:
         - code: invalid_cursor
           message: 'cursor is malformed or expired'
-
-# ----------------------------------------------------------------------------
-# CHANGELOG
-# ----------------------------------------------------------------------------
-# v2.1.0 (Codex 리뷰 반영)
-#  - [높음] 미확정 표현 단일화: status/DataStatus(partial) 제거. 200=확정 데이터만,
-#    미확정은 409 data_not_ready 로만 표현(중복 메커니즘 제거).
-#  - [높음] model 을 required 로 승격(+minLength 1). "생략 가능" 문구 제거, 미상은 "unknown".
-#  - [중간] userType↔userId 조건부 제약을 allOf if/then 으로 강제
-#    (identified→userId 문자열 필수, anonymous/unclassified→userId null).
-#  - [낮음] 인라인 CHANGELOG 의 잘못된 401 표기 제거(인증 미요구 유지).
-#  - [정리] cache 필드 정책 일치: UsageSummary 의 cacheRead/cacheCreation 을 optional(default 0)
-#    로 변경하여 UsageRecord 와 동일하게.
-#  - [정리] /v1/usage/summary 의 date 파라미터에 당일/미래 400, 보존초과 404 문구 동일 적용.
-#  - [정리] generatedAt 을 UTC Z suffix RFC3339 로 pattern 강제.
-#
-# v2.0.0 (v1 → v2 주요 개편)
-#  - 캐시 토큰(cacheRead/cacheCreation) 추가, inputTokens=cache read 제외 정의.
-#  - "미확정 vs 사용량 0" 분리(초기엔 status+409, v2.1 에서 409 단일화).
-#  - 집계 키 안정화(serviceGroupId/serviceId), distinctIdentifiedUsers(non-additive).
-#  - cursor keyset 권장, date 검증, summary=detail 합 정합성, 에러 응답/Retry-After 추가.
-#  - 자세한 v1→v2 설명은 레포의 CHANGELOG.md 참고.

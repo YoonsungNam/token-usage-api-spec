@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## v2.2.0 — userType 의도 복원 + description 간결화
+
+- **`anonymous` 재정의(원의도 복원):** "비실명 **계정**(계정별로 구분되는 사내 id 보유)" 로
+  되돌리고 `userId`(문자열) **필수**로 변경. v2.0/v2.1 에서 anonymous 를 "합산 사용량(userId
+  null)" 으로 좁혔던 것을 바로잡음.
+- **`unclassified` 명확화:** userId 가 필수가 아닌 채로 수집되는 **미매핑 사용량** → `userId`
+  null, 모델 단위 합산. (= identified/anonymous 는 userId 필수, unclassified 만 null)
+- **if/then 갱신:** anonymous→userId 문자열 필수로 변경(이전엔 null 강제였음).
+- **description 전면 간결화:** "수집기 측이 추론 서비스에게 구현을 요청"하는 데 필요한
+  정보만 남기고 배경설명·가격 수치·OTel 어댑터 등 곁가지 제거.
+
 ## v2.1.0 — Codex 리뷰 반영 (스키마 강제력 보강)
 
 v2.0.0 은 "설명은 강하지만 스키마는 느슨한" 부분이 있었다. v2.1.0 은 그 계약들을

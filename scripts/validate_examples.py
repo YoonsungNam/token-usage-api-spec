@@ -74,18 +74,19 @@ def main():
     negatives = [
         ("identified + userId null", {**base, "userType": "identified", "userId": None}),
         ("identified + userId missing", {**base, "userType": "identified"}),
-        ("anonymous + userId string", {**base, "userType": "anonymous", "userId": "u"}),
+        ("anonymous + userId null", {**base, "userType": "anonymous", "userId": None}),
+        ("anonymous + userId missing", {**base, "userType": "anonymous"}),
         ("unclassified + userId string", {**base, "userType": "unclassified", "userId": "u"}),
-        ("missing model", {"userType": "anonymous", "userId": None,
+        ("missing model", {"userType": "unclassified", "userId": None,
                            "inputTokens": 1, "outputTokens": 1, "requests": 1}),
-        ("empty model", {**base, "model": "", "userType": "anonymous", "userId": None}),
+        ("empty model", {**base, "model": "", "userType": "unclassified", "userId": None}),
     ]
     for label, inst in negatives:
         expect(f"neg: {label}", rec, inst, False)
 
     positives = [
         ("identified + userId string", {**base, "userType": "identified", "userId": "u"}),
-        ("anonymous + userId null", {**base, "userType": "anonymous", "userId": None}),
+        ("anonymous + userId string", {**base, "userType": "anonymous", "userId": "anon-1"}),
         ("unclassified + userId null", {**base, "userType": "unclassified", "userId": None}),
     ]
     for label, inst in positives:
