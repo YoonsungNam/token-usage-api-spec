@@ -64,28 +64,49 @@ def load_validators():
 
 
 def schema_errors(validator, obj):
-    return [e.message for e in validator.iter_errors(obj)]
+    out = []
+    for e in validator.iter_errors(obj):
+        loc = "/".join(str(p) for p in e.absolute_path) or "(root)"
+        out.append(f"{loc}: {e.message}")
+    return out
 
 
 # ---- 불변식 검사 -----------------------------------------------------------
 
+def _brief(r):
+    return json.dumps({k: r.get(k) for k in ("userId", "userType", "model")},
+                      ensure_ascii=False)
+
+
 def check_records(records, label):
-    seen, ok_model, ok_uid, ok_key = set(), True, True, True
-    for r in records:
+    seen, bad_model, bad_uid, dup = {}, [], [], None
+    for i, r in enumerate(records):
         m = r.get("model")
         if not isinstance(m, str) or not m:
-            ok_model = False
+            bad_model.append((i, r))
         ut, uid = r.get("userType"), r.get("userId")
         if ut in ("identified", "anonymous"):
-            ok_uid = ok_uid and isinstance(uid, str)
+            if not isinstance(uid, str):
+                bad_uid.append((i, r))
         elif ut == "unclassified":
-            ok_uid = ok_uid and uid is None
+            if uid is not None:
+                bad_uid.append((i, r))
         key = (uid, ut, m)
-        ok_key = ok_key and key not in seen
-        seen.add(key)
-    record(f"C2 model present/non-empty on every row [{label}]", ok_model)
-    record(f"C3 userType<->userId rule [{label}]", ok_uid)
-    record(f"C4 (userId,userType,model) unique [{label}]", ok_key)
+        if key in seen:
+            dup = dup or (key, seen[key], i)
+        else:
+            seen[key] = i
+
+    def ex(rows):
+        i, r = rows[0]
+        return f"{len(rows)} row(s); e.g. row[{i}] {_brief(r)}"
+
+    record(f"C2 model present/non-empty on every row [{label}]",
+           not bad_model, ex(bad_model) if bad_model else "")
+    record(f"C3 userType<->userId rule [{label}]",
+           not bad_uid, ex(bad_uid) if bad_uid else "")
+    record(f"C4 (userId,userType,model) unique [{label}]",
+           dup is None, f"dup key {dup[0]} at rows {dup[1]} & {dup[2]}" if dup else "")
 
 
 def _sum(records, field):
@@ -186,8 +207,10 @@ def run_demo():
     schemas, v = load_validators()
     page = schemas["UsagePage"]["examples"][0]
     summary = schemas["UsageSummary"]["examples"][0]
-    record("demo: UsagePage example schema valid", not schema_errors(v["page"], page))
-    record("demo: UsageSummary example schema valid", not schema_errors(v["summary"], summary))
+    pe = schema_errors(v["page"], page)
+    record("demo: UsagePage example schema valid", not pe, "; ".join(pe[:3]))
+    se = schema_errors(v["summary"], summary)
+    record("demo: UsageSummary example schema valid", not se, "; ".join(se[:3]))
     check_records(page["records"], "demo")
     check_summary_consistency(page["records"], summary)
 
