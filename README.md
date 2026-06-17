@@ -31,9 +31,7 @@
     `unclassified`(사용자 매핑 없는 사용량)는 **null + 모델 단위 합산**.
   - `model` = **필수**(모르면 `"unknown"`).
 - **토큰** (provider 보고 usage 기준)
-  - `inputTokens`(cache read 제외) / `cacheReadTokens` / `cacheCreationTokens` /
-    `outputTokens`(reasoning 포함) / `requests`.
-  - 캐시 미지원 백엔드(vLLM 등)는 cache 필드를 0 또는 생략.
+  - `inputTokens`(input 토큰 전체, 캐시 포함) / `outputTokens`(reasoning 포함) / `requests`.
 - **확정 / 응답 규칙**
   - 확정된 데이터만 `200`. 아직 집계 전이면 `409`(빈 `200` 금지 — "사용량 0"과 구분).
   - 사용량이 실제 0 이면 `200` + 빈 목록. 당일/미래 `date` 는 `400`, 보존 초과는 `404`.

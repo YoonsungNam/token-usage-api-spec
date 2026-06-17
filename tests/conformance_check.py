@@ -116,8 +116,7 @@ def _sum(records, field):
 
 def check_summary_consistency(records, summary):
     ok, detail = True, []
-    for f in ("inputTokens", "outputTokens", "cacheReadTokens",
-              "cacheCreationTokens", "requests"):
+    for f in ("inputTokens", "outputTokens", "requests"):
         s_val, d_val = int(summary.get(f, 0) or 0), _sum(records, f)
         if s_val != d_val:
             ok = False
