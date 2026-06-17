@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: Service Usage Provider API
-  version: 2.2.2
+  version: 2.3.0
   description: |
     사내 각 서비스가 **자신의 LLM 사용량**(input/output token, request 수)을 노출하기 위해
     구현해야 하는 **표준 조회 API 계약(contract)**.
@@ -16,8 +16,6 @@ info:
     - 데이터를 서비스가 밀어넣는(push) 방식이 아니라, 수집기가 끌어오는(pull) 방식이다.
     - 호출 빈도는 일자당 1회 정도(하루 단위 집계 수합)를 기준으로 한다.
     - 사내 신뢰 네트워크 내 호출을 전제로 하며, 별도 인증(API Key 등)은 요구하지 않는다.
-      - **[v2 추가]** 응답에 사용자별 사용량(준-PII)이 포함되므로, 수집기 IP 만 허용하는
-        네트워크 ACL 등 비-API 통제를 권장한다.
 
     ## 집계 기간 / 시간대
     - 모든 일자(`date`)는 **KST(Asia/Seoul, +09:00)** 기준이다.
@@ -35,9 +33,6 @@ info:
       예) 서비스 그룹 `XX Agentic AI` 아래에 서비스 `XX 개발 지식 Agent`, `XX 불량 데이터 분석 Agent` 등이 속한다.
     - 수집기/대시보드는 `serviceGroup` 으로 과제 단위 합계를, `service` 로 서비스 단위
       합계를 구성한다.
-    - **[v2 추가]** 집계 키가 표시명 변경/오타로 흔들리지 않도록, 불변 식별자
-      `serviceGroupId` / `serviceId`(소문자-하이픈, 공백 없음)를 함께 제공한다. 대시보드
-      그룹핑은 이 키로 하고, `serviceGroup` / `service` 는 표시명(변경 가능)으로만 쓴다.
 
     ## 데이터 모델
     - 사용량은 특정 일자(`date`)에 대해 **사용자×모델 단위로 사전 집계**되어 제공된다.
@@ -366,26 +361,16 @@ components:
 
     UsagePage:
       type: object
-      required: [serviceGroupId, serviceGroup, serviceId, service, date, generatedAt, records]
+      required: [serviceGroup, service, date, generatedAt, records]
       properties:
-        serviceGroupId:
-          type: string
-          description: 서비스 그룹(과제) 집계 키 (불변)
-          pattern: '^[a-z0-9][a-z0-9-]{0,127}$'
-          examples: ['xx-agentic-ai']
         serviceGroup:
           type: string
-          description: 서비스 그룹 표시명
+          description: 서비스의 상위 개념인 서비스 그룹(과제명)
           maxLength: 256
           examples: ['XX Agentic AI']
-        serviceId:
-          type: string
-          description: 서비스 집계 키 (불변)
-          pattern: '^[a-z0-9][a-z0-9-]{0,127}$'
-          examples: ['xx-dev-knowledge-agent']
         service:
           type: string
-          description: 서비스 표시명
+          description: 이 데이터를 제공하는 서비스 식별자
           maxLength: 256
           examples: ['XX 개발 지식 Agent']
         date:
@@ -408,9 +393,7 @@ components:
           type: string
           description: 다음 페이지 커서. 없으면 마지막 페이지.
       examples:
-        - serviceGroupId: xx-agentic-ai
-          serviceGroup: XX Agentic AI
-          serviceId: xx-dev-knowledge-agent
+        - serviceGroup: XX Agentic AI
           service: XX 개발 지식 Agent
           date: '2026-06-15'
           generatedAt: '2026-06-16T02:05:00+09:00'
@@ -439,22 +422,16 @@ components:
 
     UsageSummary:
       type: object
-      required: [serviceGroupId, serviceGroup, serviceId, service, date, generatedAt, inputTokens, outputTokens, requests, distinctIdentifiedUsers]
+      required: [serviceGroup, service, date, generatedAt, inputTokens, outputTokens, requests, distinctIdentifiedUsers]
       properties:
-        serviceGroupId:
-          type: string
-          pattern: '^[a-z0-9][a-z0-9-]{0,127}$'
-          examples: ['xx-agentic-ai']
         serviceGroup:
           type: string
+          description: 서비스의 상위 개념인 서비스 그룹(과제명)
           maxLength: 256
           examples: ['XX Agentic AI']
-        serviceId:
-          type: string
-          pattern: '^[a-z0-9][a-z0-9-]{0,127}$'
-          examples: ['xx-dev-knowledge-agent']
         service:
           type: string
+          description: 이 데이터를 제공하는 서비스 식별자
           maxLength: 256
           examples: ['XX 개발 지식 Agent']
         date:
@@ -497,9 +474,7 @@ components:
             집계되는 것이 정상이며, 사용자별·서비스 교차 집계는 수집기가 `GET /v1/usage`
             의 `userId` 로 계산한다.
       examples:
-        - serviceGroupId: xx-agentic-ai
-          serviceGroup: XX Agentic AI
-          serviceId: xx-dev-knowledge-agent
+        - serviceGroup: XX Agentic AI
           service: XX 개발 지식 Agent
           date: '2026-06-15'
           generatedAt: '2026-06-16T02:05:00+09:00'

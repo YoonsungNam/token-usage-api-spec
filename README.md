@@ -6,7 +6,7 @@
 
 ## 파일
 
-- [`token-usage-api.v2.yaml`](./token-usage-api.v2.yaml) — OpenAPI 3.1 스펙 (**현행**, v2.2.2)
+- [`token-usage-api.v2.yaml`](./token-usage-api.v2.yaml) — OpenAPI 3.1 스펙 (**현행**, v2.3.0)
 - [`token-usage-api.v1.yaml`](./token-usage-api.v1.yaml) — 최초 스펙 원본 (v1.0.0, 보관용 / deprecated)
 - [`CHANGELOG.md`](./CHANGELOG.md) — 버전별 변경사항 + 결정 이유
 
@@ -25,7 +25,7 @@
 - **방향**: pull. 수집기가 다음날 새벽에 직전날(`date`=어제) 데이터를 호출한다. 인증 없음(사내망 전제).
 - **집계 단위**: `date`(KST 하루 전체) × `userId` × `userType` × `model` 로 사전 집계해 행으로 제공.
 - **식별자**
-  - `serviceGroupId` / `serviceId` = 집계용 **불변 키**(소문자-하이픈), `serviceGroup` / `service` = 표시명.
+  - `serviceGroup`(과제명) / `service` = 서비스 그룹 · 서비스 식별 (자유 문자열).
   - `userId` = 사내 id. `identified`(실명)·`anonymous`(비실명 계정)는 **필수(문자열)**,
     `unclassified`(사용자 매핑 없는 사용량)는 **null + 모델 단위 합산**.
   - `model` = **필수**(모르면 `"unknown"`).

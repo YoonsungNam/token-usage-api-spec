@@ -95,8 +95,7 @@ def main():
     print("\n== generatedAt KST(+09:00) regression ==")
     page = Validator(build(schemas, "UsagePage"))
     base_page = {
-        "serviceGroupId": "g", "serviceGroup": "G",
-        "serviceId": "s", "service": "S",
+        "serviceGroup": "G", "service": "S",
         "date": "2026-06-15", "records": [],
     }
     expect("gen KST +09:00", page, {**base_page, "generatedAt": "2026-06-16T02:05:00+09:00"}, True)

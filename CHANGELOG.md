@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## v2.3.0 — v2 추가분 선별: 일부만 유지하고 나머지는 v1 원복
+
+v2 에서 더했던 항목 중 **데이터 모델 · 페이지네이션 · 데이터 확정/응답 규칙 · 토큰 필드**
+관련만 유지하고, 나머지 추가분은 v1 으로 되돌렸다.
+
+- **원복:** 호출 방향의 네트워크 ACL 권장 문구 제거(v1 그대로).
+- **원복:** `serviceGroupId` / `serviceId`(불변 집계 키) 제거 → v1 의 `serviceGroup` / `service`
+  (자유 문자열)로 복귀. (표시명 변경·공백 오타 시 그룹 깨짐 위험은 v1 수준으로 회귀)
+- **유지:** model 필수(+`unknown`), userType↔userId if/then, cache 토큰 필드, 확정/응답 규칙
+  (200=확정·409 미확정·빈 200=사용량 0), `generatedAt`(KST), keyset cursor.
+
 ## v2.2.2 — generatedAt 시간대 KST 정정 + distinctIdentifiedUsers 설명 간소화
 
 - **`generatedAt` 를 KST(`+09:00`)로 정정.** v1 의 전체 규약이 KST(`date` 도 KST)인데
