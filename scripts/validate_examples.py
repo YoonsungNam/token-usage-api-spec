@@ -23,7 +23,7 @@ except Exception:  # 구버전 폴백 (if/then/const 는 Draft7 부터 지원)
     from jsonschema import Draft7Validator as Validator
     DIALECT = "draft7"
 
-SPEC = "token-usage-api.v2.yaml"
+SPEC = "token-usage-api.yaml"
 
 failures = []
 

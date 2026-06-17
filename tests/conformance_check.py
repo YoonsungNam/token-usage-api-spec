@@ -40,7 +40,7 @@ except Exception:
     from jsonschema import Draft7Validator as Validator
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SPEC = os.path.join(HERE, "..", "token-usage-api.v2.yaml")
+SPEC = os.path.join(HERE, "..", "token-usage-api.yaml")
 
 results = []
 

@@ -4,14 +4,14 @@ on:
   push:
     branches: [main]
     paths:
-      - 'token-usage-api.v2.yaml'
+      - 'token-usage-api.yaml'
       - 'redocly.yaml'
       - 'scripts/validate_examples.py'
       - 'tests/conformance_check.py'
       - '.github/workflows/openapi-ci.yml'
   pull_request:
     paths:
-      - 'token-usage-api.v2.yaml'
+      - 'token-usage-api.yaml'
       - 'redocly.yaml'
       - 'scripts/validate_examples.py'
       - 'tests/conformance_check.py'
@@ -27,7 +27,7 @@ jobs:
         with:
           node-version: '20'
       - name: Lint OpenAPI (current spec)
-        run: npx --yes @redocly/cli@latest lint token-usage-api.v2.yaml
+        run: npx --yes @redocly/cli@latest lint token-usage-api.yaml
 
   validate-examples:
     name: Examples + if/then regression
