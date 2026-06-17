@@ -1,0 +1,99 @@
+# 구현 가이드 (추론 서비스 팀용)
+
+`token-usage-api.v2.yaml` 를 구현할 때 자주 헷갈리는 부분을 정리한 문서다.
+계약 본문은 스펙 파일이 우선이며, 이 문서는 그 의도와 provider 별 매핑을 설명한다.
+
+---
+
+## 1. `model` 은 왜 필수인가 (이중 집계 방지)
+
+`model` 을 필수로 둔 이유는 **이중 집계(double counting) 방지**다.
+
+모델별 행과 "모델 무관 합산" 행이 한 응답에 섞이면 수집기가 토큰을 두 번 더하게 된다.
+예) 사용자 `u1` 이 하루에 opus·haiku 를 썼을 때:
+
+```yaml
+# ❌ 이렇게 섞이면 위험 (model 생략 = 모델 무관 합산)
+- userId: u1, model: claude-opus-4-8, inputTokens: 100
+- userId: u1, model: claude-haiku-4-5, inputTokens: 50
+- userId: u1,  # model 생략 = 합산
+  inputTokens: 150
+# 수집기 단순 합산 → 100+50+150 = 300  (실제 150 의 2배)
+```
+
+`model` 을 필수로 하면 모든 행이 `(userId, model)` 격자의 **겹치지 않는 한 칸**이 되어
+단순 합산이 항상 정확하다.
+
+```yaml
+# ✅ model 필수 — 겹침 없음
+- userId: u1, model: claude-opus-4-8, inputTokens: 100
+- userId: u1, model: claude-haiku-4-5, inputTokens: 50
+# 합 = 150 ✔
+```
+
+**모델을 구분할 수 없는 서비스**는 전부 `model: "unknown"` 한 칸에 담는다. v1 의 "모델 무관
+총합" 목적을 그대로 달성하면서 겹침이 없다.
+
+```yaml
+- userId: u1, model: unknown, inputTokens: 150
+```
+
+규칙: **한 응답 안에서 model 은 모든 행에 존재**해야 하며(혼재 금지), 모르면 `"unknown"`.
+
+---
+
+## 2. 토큰 필드 — provider 별 매핑
+
+### 정의 (스펙 기준)
+- `inputTokens`: input 토큰 — **cache read 제외**
+- `outputTokens`: output 토큰 — **reasoning/thinking 포함**
+- `cacheReadTokens`: 캐시에서 읽힌 토큰 (없으면 0/생략)
+- `cacheCreationTokens`: 캐시에 쓰인 토큰 (없으면 0/생략)
+- `requests`: provider 로의 API 호출 수
+- 값은 모두 **provider 가 응답으로 보고한 usage** 기준 (자체 tokenizer 추정 금지)
+
+### provider 별 변환표
+
+| | cache read | cache creation | 원천 usage 필드 | 스펙 매핑 |
+|---|---|---|---|---|
+| **Claude (Anthropic)** | ✅ (≈0.1×) | ✅ (≈1.25×/2×) | `input_tokens`(이미 캐시 제외), `cache_read_input_tokens`, `cache_creation_input_tokens`, `output_tokens` | `inputTokens = input_tokens`<br>`cacheReadTokens = cache_read_input_tokens`<br>`cacheCreationTokens = cache_creation_input_tokens`<br>`outputTokens = output_tokens` |
+| **Codex (OpenAI)** | ✅ (자동, 할인) | ❌ 개념 없음 | `prompt_tokens`(**cached 포함**), `prompt_tokens_details.cached_tokens`, `completion_tokens` | `inputTokens = prompt_tokens − cached_tokens`<br>`cacheReadTokens = cached_tokens`<br>`cacheCreationTokens = 0`<br>`outputTokens = completion_tokens` |
+| **vLLM (self-hosted)** | ✅ (prefix cache, 무료) | ❌ 개념 없음 | `prompt_tokens`(**cached 포함**), `prompt_tokens_details.cached_tokens`*, `completion_tokens` | `inputTokens = prompt_tokens − cached_tokens`<br>`cacheReadTokens = cached_tokens`<br>`cacheCreationTokens = 0`<br>`outputTokens = completion_tokens` |
+
+\* vLLM 버전에 따라 `cached_tokens` 미제공일 수 있음. 그 경우 `cacheReadTokens` 는 0/생략하고
+모든 prompt 토큰을 `inputTokens` 에 담는다.
+
+### ⚠️ 자주 틀리는 두 지점
+
+1. **`inputTokens` 에서 cache read 를 빼야 한다 (OpenAI/vLLM).**
+   OpenAI·vLLM 의 `prompt_tokens` 는 cached 를 **포함**한다. 그대로 `inputTokens` 에 넣으면
+   cache read 가 input 에 이중으로 잡힌다. → `inputTokens = prompt_tokens − cached_tokens`.
+   (Claude 의 `input_tokens` 는 이미 캐시를 뺀 값이라 그대로 사용)
+
+2. **`cacheCreationTokens` 는 Claude 만 채워진다.**
+   "cache 생성"을 별도로 세고 과금하는 건 사실상 Anthropic explicit caching 뿐이다.
+   Codex/vLLM 은 캐싱이 자동·무료라 생성 개념이 없으므로 **항상 0**. (그래서 스펙에서
+   cache 필드는 optional + default 0)
+
+### output 의 reasoning 포함 여부
+대부분 provider 의 output/completion 토큰 수는 **이미 reasoning 을 포함**한다
+(Claude `output_tokens`, OpenAI `completion_tokens`, vLLM `completion_tokens` 모두 포함).
+"reasoning 포함" 문구는 빠질까봐 넣은 게 아니라, **서비스가 임의로 reasoning 을 빼고 보고하지
+않도록** 통일하기 위한 것이다. 즉 provider 가 준 수치를 그대로 쓰면 된다.
+
+> 참고: vLLM 은 자체 호스팅이라 토큰에 가격이 없다(자기 GPU). vLLM 의 cache/토큰 수치는
+> "비용"이 아니라 "사용량·캐시 효율" 지표다.
+
+---
+
+## 3. 응답 규칙 빠른 참고 (확정/미확정/0/보존초과)
+
+| 상황 | 응답 |
+|---|---|
+| 확정된 사용량 있음 | `200` + `records` |
+| 유효한 일자, 실제 사용량 0 | `200` + 빈 `records` |
+| 아직 집계 전(미확정) | `409 data_not_ready` (+`Retry-After`) — 빈 `200` 금지 |
+| 당일/미래 일자 | `400` |
+| 보존 기간 초과(데이터 삭제됨) | `404 data_not_retained` — 데이터를 무기한 보관하면 발생 안 함 |
+
+`generatedAt` 은 KST(`+09:00`)로 집계 산출 시각을 함께 반환한다(`date` 와 같은 KST 기준).
