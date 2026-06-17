@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## v2.5.0 — distinctIdentifiedUsers(실명 전용) 옵셔널 필드 추가
+
+`distinctUsers`(실명+비실명, 필수)는 그대로 두고, **실명(`identified`)만 따로 세는
+`distinctIdentifiedUsers` 를 optional 필드로 추가**했다.
+
+- `distinctUsers` (required): identified + anonymous 고유 userId 수
+- `distinctIdentifiedUsers` (optional): identified 고유 userId 수 (`distinctUsers` 의 부분집합)
+- 셀프 점검: 제공된 경우에만 검사하는 C9b 추가
+
 ## v2.4.0 — distinctIdentifiedUsers → distinctUsers (실명+비실명 계정 포함)
 
 v1 의 `distinctUsers` 정의는 "식별된(**userId 존재**) 고유 사용자 수"였다. v2.2 에서

@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: Service Usage Provider API
-  version: 2.4.0
+  version: 2.5.0
   description: |
     사내 각 서비스가 **자신의 LLM 사용량**(input/output token, request 수)을 노출하기 위해
     구현해야 하는 **표준 조회 API 계약(contract)**.
@@ -478,6 +478,12 @@ components:
             (`anonymous`) 모두 포함. `unclassified`(userId null)는 제외한다.
             (이 서비스 기준 집계값. 서비스 간 합산/교차 집계는 수집기가 `GET /v1/usage`
             의 `userId` 로 계산)
+        distinctIdentifiedUsers:
+          type: integer
+          minimum: 0
+          description: |
+            실명(`identified`) 고유 사용자 수 (**optional**). `distinctUsers` 의 부분집합으로,
+            실명 사용자만 따로 보고 싶을 때 제공한다.
       examples:
         - serviceGroup: XX Agentic AI
           service: XX 개발 지식 Agent
@@ -489,6 +495,7 @@ components:
           outputTokens: 54200
           requests: 412
           distinctUsers: 2
+          distinctIdentifiedUsers: 1
 
     Error:
       type: object

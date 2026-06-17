@@ -11,6 +11,7 @@
   - generatedAt 은 KST(+09:00)  (스키마 pattern 으로 검증)
   - summary 토큰 합 == detail 전체 행 합
   - distinctUsers == detail 의 고유 userId 수 (identified+anonymous, unclassified 제외)
+  - distinctIdentifiedUsers(옵션) == detail 의 identified 고유 userId 수 (제공 시에만)
   - 미래 date → 400, 잘못된 cursor → 400
 
 사용법:
@@ -129,6 +130,14 @@ def check_summary_consistency(records, summary):
     s_distinct = summary.get("distinctUsers")
     record("C9 distinctUsers == distinct userIds (identified+anonymous)",
            distinct == s_distinct, f"summary={s_distinct} detail={distinct}")
+
+    # C9b: distinctIdentifiedUsers (optional) — 제공된 경우에만 검사
+    if "distinctIdentifiedUsers" in summary:
+        distinct_id = len({r["userId"] for r in records
+                           if r.get("userType") == "identified" and isinstance(r.get("userId"), str)})
+        s_id = summary.get("distinctIdentifiedUsers")
+        record("C9b distinctIdentifiedUsers == distinct identified userIds (optional)",
+               distinct_id == s_id, f"summary={s_id} detail={distinct_id}")
 
 
 # ---- HTTP ------------------------------------------------------------------
