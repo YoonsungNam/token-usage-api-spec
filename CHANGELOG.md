@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## v2.3.1 — description 에 한 줄 예시 추가 (계약 불변)
+
+오해가 잦은 두 곳에 초미니 예시를 본문에 더하고, 상세 예시는 가이드로 연결했다.
+와이어 계약은 v2.3.0 과 동일.
+
+- `userType`↔`userId` 옆: `identified→"user-1024"`, `anonymous→"anon-3201"`, `unclassified→null` 한 줄 예시.
+- `model` 규칙 옆: 모델 미상은 `model:"unknown"` 한 행으로 담는다는 한 줄 예시.
+- 토큰 필드: provider별 매핑·계산은 `docs/IMPLEMENTATION_NOTES.md` 로 포인터.
+- (정리) redocly.yaml 의 미인식 규칙 `info-license-url` 제거.
+
 ## v2.3.0 — v2 추가분 선별: 일부만 유지하고 나머지는 v1 원복
 
 v2 에서 더했던 항목 중 **데이터 모델 · 페이지네이션 · 데이터 확정/응답 규칙 · 토큰 필드**

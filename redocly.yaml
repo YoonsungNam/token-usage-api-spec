@@ -5,7 +5,6 @@ extends:
 rules:
   # 사내 단일 contract — 불필요한 메타/스타일 규칙은 끈다
   info-license: off
-  info-license-url: off
   tag-description: off
   operation-description: off
   operation-summary: off
