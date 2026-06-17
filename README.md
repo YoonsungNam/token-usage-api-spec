@@ -58,6 +58,20 @@ npx --yes @redocly/cli@latest lint token-usage-api.v2.yaml
 pip install "jsonschema>=4.21" pyyaml && python scripts/validate_examples.py
 ```
 
-> 참고: `if/then` 조건부 제약은 **런타임 JSON Schema 검증기**(ajv/jsonschema 등)에서만 강제된다.
+### 프로바이더 셀프 점검
+
+추론 서비스는 구현 중/후에 **자기 서버에** 셀프 점검 스크립트를 돌려 계약 준수를 확인한다.
+스키마 적합성 + 불변식(summary=detail 합, model 필수, `userType`↔`userId`, generatedAt KST,
+페이지네이션 종료, 미래날짜→400, 잘못된 cursor→400 등)을 검사한다.
+
+```bash
+pip install jsonschema pyyaml
+python tests/conformance_check.py --base-url https://my-svc.internal --date 2026-06-15
+# 서버 없이 스크립트 동작만 확인: python tests/conformance_check.py --demo
+```
+
+### if/then 참고
+
+> `if/then` 조건부 제약은 **런타임 JSON Schema 검증기**(ajv/jsonschema 등)에서만 강제된다.
 > 다수 OpenAPI **코드 생성기**는 이를 무시하므로, 생성 타입이 아니라 런타임 검증으로 제약을
 > 보장해야 한다. 코드 생성 도입 시 해당 도구의 OpenAPI 3.1 지원 여부부터 확인할 것.

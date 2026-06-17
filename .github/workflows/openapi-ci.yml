@@ -7,12 +7,14 @@ on:
       - 'token-usage-api.v2.yaml'
       - 'redocly.yaml'
       - 'scripts/validate_examples.py'
+      - 'tests/conformance_check.py'
       - '.github/workflows/openapi-ci.yml'
   pull_request:
     paths:
       - 'token-usage-api.v2.yaml'
       - 'redocly.yaml'
       - 'scripts/validate_examples.py'
+      - 'tests/conformance_check.py'
       - '.github/workflows/openapi-ci.yml'
 
 jobs:
@@ -39,3 +41,5 @@ jobs:
         run: pip install "jsonschema>=4.21" "pyyaml>=6"
       - name: Validate examples and conditional constraints
         run: python scripts/validate_examples.py
+      - name: Conformance checker self-test (demo)
+        run: python tests/conformance_check.py --demo
