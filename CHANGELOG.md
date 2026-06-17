@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## 공유본 token-usage-api.yaml 1.1.0 — cache 토큰 분리(복원)
+
+동료 요청으로 cache 토큰을 input 에 합치지 않고 **별도 필드로 분리**해 받기로 함.
+
+- `cacheReadTokens` / `cacheCreationTokens` (optional, default 0) 재도입
+- `inputTokens` 정의 명확화 = **순수 input (cache read·creation 모두 제외)**
+  (1.0.0 에서 잠깐 "캐시 포함"이었던 것을 되돌리고, 문구 모호성 제거)
+- 총 input 처리량 = `inputTokens + cacheReadTokens + cacheCreationTokens`
+- 공유 세트(yaml / README / docs / 셀프 점검) 동기화
+
+
 ## v2.5.0 — distinctIdentifiedUsers(실명 전용) 옵셔널 필드 추가
 
 `distinctUsers`(실명+비실명, 필수)는 그대로 두고, **실명(`identified`)만 따로 세는

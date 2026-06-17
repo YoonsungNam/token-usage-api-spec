@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: Service Usage Provider API
-  version: 1.0.0
+  version: 1.1.0
   description: |
     사내 각 서비스가 **자신의 LLM 사용량**(input/output/cache token, request 수)을 노출하기 위해
     구현해야 하는 **표준 조회 API 계약(contract)**.
@@ -56,9 +56,13 @@ info:
     - 응답에는 집계 산출 시각 `generatedAt`(KST, `+09:00`)을 포함한다.
 
     ## 토큰 필드 (값은 provider 가 보고한 usage 기준)
-    - `inputTokens`: input(prompt) 토큰 전체 (**캐시 토큰 포함**)
+    - `inputTokens`: 순수 input 토큰 (**cache read·creation 모두 제외**)
+    - `cacheReadTokens`: 캐시에서 읽힌 토큰 (없으면 0 또는 생략)
+    - `cacheCreationTokens`: 캐시에 쓰인 토큰 (없으면 0 또는 생략)
     - `outputTokens`: output 토큰 (reasoning 포함)
     - `requests`: provider 로의 API 호출 수
+    - 총 input 처리량 = `inputTokens + cacheReadTokens + cacheCreationTokens`.
+    - provider(Claude/OpenAI/vLLM)별 매핑은 `docs/IMPLEMENTATION_NOTES.md` 참고.
 
 servers:
   - url: https://{serviceHost}
@@ -286,7 +290,19 @@ components:
           type: integer
           format: int64
           minimum: 0
-          description: input(prompt) 토큰 전체 (캐시 토큰 포함)
+          description: 순수 input 토큰 (cache read·creation 제외)
+        cacheReadTokens:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
+          description: 캐시 읽기 토큰 (없으면 0/생략)
+        cacheCreationTokens:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
+          description: 캐시 쓰기 토큰 (없으면 0/생략)
         outputTokens:
           type: integer
           format: int64
@@ -323,6 +339,8 @@ components:
           userType: identified
           model: claude-opus-4-8
           inputTokens: 152000
+          cacheReadTokens: 89000
+          cacheCreationTokens: 12000
           outputTokens: 48200
           requests: 312
         - userId: anon-3201
@@ -381,6 +399,8 @@ components:
               userType: identified
               model: claude-opus-4-8
               inputTokens: 152000
+              cacheReadTokens: 89000
+              cacheCreationTokens: 12000
               outputTokens: 48200
               requests: 312
             - userId: anon-3201
@@ -425,6 +445,16 @@ components:
           type: integer
           format: int64
           minimum: 0
+        cacheReadTokens:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
+        cacheCreationTokens:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
         outputTokens:
           type: integer
           format: int64
@@ -453,6 +483,8 @@ components:
           date: '2026-06-15'
           generatedAt: '2026-06-16T02:05:00+09:00'
           inputTokens: 179000
+          cacheReadTokens: 89000
+          cacheCreationTokens: 12000
           outputTokens: 54200
           requests: 412
           distinctUsers: 2

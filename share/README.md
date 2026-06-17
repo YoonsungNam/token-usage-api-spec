@@ -42,9 +42,10 @@ npx --yes @redocly/cli@latest preview-docs token-usage-api.yaml
 - **`model` 필수**: 모르거나 모델 무관 총합이면 `"unknown"`. (일부 행만 model 을 갖는 혼재 금지 —
   이중 집계 방지)
 - **토큰** (provider 가 보고한 usage 기준; 자체 추정 금지)
-  - `inputTokens`(input/prompt 토큰 전체, **캐시 포함**) / `outputTokens`(reasoning 포함) /
+  - `inputTokens`(순수 input, **cache read·creation 제외**) / `cacheReadTokens` /
+    `cacheCreationTokens`(없으면 0/생략) / `outputTokens`(reasoning 포함) /
     `requests`(provider API 호출 수)
-  - provider(Claude/OpenAI/vLLM)별 합산 방법은 `docs/IMPLEMENTATION_NOTES.md` 참고.
+  - provider(Claude/OpenAI/vLLM)별 매핑은 `docs/IMPLEMENTATION_NOTES.md` 참고.
 - **확정 / 응답 규칙**
   - 확정된 데이터만 `200`. 사용량이 실제 0 이면 `200` + 빈 목록.
   - 아직 집계 전이면 `409`(빈 `200` 으로 응답 금지 — "사용량 0" 과 구분).
