@@ -6,7 +6,7 @@
 
 ## 파일
 
-- [`token-usage-api.v2.yaml`](./token-usage-api.v2.yaml) — OpenAPI 3.1 스펙 (**현행**, v2.3.1)
+- [`token-usage-api.v2.yaml`](./token-usage-api.v2.yaml) — OpenAPI 3.1 스펙 (**현행**, v2.4.0)
 - [`token-usage-api.v1.yaml`](./token-usage-api.v1.yaml) — 최초 스펙 원본 (v1.0.0, 보관용 / deprecated)
 - [`CHANGELOG.md`](./CHANGELOG.md) — 버전별 변경사항 + 결정 이유
 - [`docs/IMPLEMENTATION_NOTES.md`](./docs/IMPLEMENTATION_NOTES.md) — 구현 가이드 (model 필수 이유, provider별 토큰/캐시 매핑, 응답 규칙)

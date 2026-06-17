@@ -10,7 +10,7 @@
   - 페이지네이션: nextCursor 를 끝까지 따라가며 종료
   - generatedAt 은 KST(+09:00)  (스키마 pattern 으로 검증)
   - summary 토큰 합 == detail 전체 행 합
-  - distinctIdentifiedUsers == detail 의 identified 고유 userId 수
+  - distinctUsers == detail 의 고유 userId 수 (identified+anonymous, unclassified 제외)
   - 미래 date → 400, 잘못된 cursor → 400
 
 사용법:
@@ -124,9 +124,10 @@ def check_summary_consistency(records, summary):
     record("C8 summary tokens == sum(detail rows)", ok, "; ".join(detail))
 
     distinct = len({r["userId"] for r in records
-                    if r.get("userType") == "identified" and isinstance(r.get("userId"), str)})
-    s_distinct = summary.get("distinctIdentifiedUsers")
-    record("C9 distinctIdentifiedUsers == distinct identified userIds",
+                    if r.get("userType") in ("identified", "anonymous")
+                    and isinstance(r.get("userId"), str)})
+    s_distinct = summary.get("distinctUsers")
+    record("C9 distinctUsers == distinct userIds (identified+anonymous)",
            distinct == s_distinct, f"summary={s_distinct} detail={distinct}")
 
 

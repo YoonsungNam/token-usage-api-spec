@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## v2.4.0 — distinctIdentifiedUsers → distinctUsers (실명+비실명 계정 포함)
+
+v1 의 `distinctUsers` 정의는 "식별된(**userId 존재**) 고유 사용자 수"였다. v2.2 에서
+`anonymous`(비실명 계정)도 사내 `userId` 를 갖게 되면서 "userId 존재" = identified + anonymous
+가 되었으므로, `distinctIdentifiedUsers`(실명만)로 좁혔던 것을 **v1 의도대로 `distinctUsers`**
+(실명+비실명 계정, `unclassified`=null 제외)로 되돌렸다.
+
+- 필드명 `distinctIdentifiedUsers` → `distinctUsers`
+- 집계 대상: `userType ∈ {identified, anonymous}` 의 고유 `userId` (unclassified 제외)
+- 예시값 `1` → `2` (user-1024 + anon-3201), 셀프 점검 C9 갱신
+
 ## v2.3.1 — description 에 한 줄 예시 추가 (계약 불변)
 
 오해가 잦은 두 곳에 초미니 예시를 본문에 더하고, 상세 예시는 가이드로 연결했다.
